@@ -6,6 +6,9 @@
   "scripts": {
     "build": "pnpm --filter @don/config build --if-present && pnpm --filter @don/shared run build && pnpm --filter @don/ai run build && pnpm --filter @don/ui run build && pnpm --filter @don/api run build && pnpm --filter @don/desktop-agent run build && pnpm --filter @don/browser-extension run build",
     "build:web": "pnpm --filter @don/web run build",
+    "dev:api": "pnpm --filter @don/api dev",
+    "dev:web": "pnpm --filter @don/web dev",
+    "dev": "pnpm --parallel --filter @don/api --filter @don/web dev",
     "typecheck": "pnpm -r run typecheck",
     "lint": "pnpm -r run lint",
     "test": "vitest run",
