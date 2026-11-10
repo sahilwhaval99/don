@@ -2,13 +2,9 @@ name: DON Monorepo CI Verification Pipeline
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   pull_request:
-    branches:
-      - main
-      - master
+    branches: [main, master]
   workflow_dispatch:
 
 permissions:
@@ -34,38 +30,38 @@ jobs:
           node-version: 20
           cache: 'pnpm'
 
-      - name: Round 1: Dependency Install
+      - name: "Round 1 - Dependency Install"
         run: pnpm install
 
-      - name: Build Shared Packages
+      - name: "Build Shared Packages"
         run: |
           pnpm --filter @don/shared run build
           pnpm --filter @don/ai run build
           pnpm --filter @don/ui run build
 
-      - name: Round 2: Type Check Workspaces
+      - name: "Round 2 - Type Check Workspaces"
         run: pnpm run typecheck
 
-      - name: Round 3: Lint Check Workspaces
+      - name: "Round 3 - Lint Check Workspaces"
         run: pnpm run lint
 
-      - name: Round 4: Unit Test Suite
+      - name: "Round 4 - Unit Test Suite"
         run: pnpm run test:unit
 
-      - name: Round 5: API Integration Tests
+      - name: "Round 5 - API Integration Tests"
         run: pnpm run test:integration
 
-      - name: Round 6: Static Web Build (GitHub Pages Export)
+      - name: "Round 6 - Static Web Build"
         run: pnpm --filter @don/web run build
 
-      - name: Round 7: Docker Container Validation
+      - name: "Round 7 - Docker Container Validation"
         run: pnpm run test:docker
 
-      - name: Round 8: End-to-End User Flow Tests
+      - name: "Round 8 - End-to-End User Flow Tests"
         run: pnpm run test:e2e
 
-      - name: Round 9: Desktop Mock Test Suite
+      - name: "Round 9 - Desktop Mock Test Suite"
         run: pnpm run test:desktop
 
-      - name: Round 10: Android Companion Mock Test Suite
+      - name: "Round 10 - Android Companion Mock Test Suite"
         run: pnpm run test:android
