@@ -2,10 +2,17 @@ name: DON Monorepo CI Verification Pipeline
 
 on:
   push:
-    branches: [main, master, develop]
+    branches:
+      - main
+      - master
   pull_request:
-    branches: [main, master]
+    branches:
+      - main
+      - master
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   verify:
@@ -28,7 +35,13 @@ jobs:
           cache: 'pnpm'
 
       - name: Round 1: Dependency Install
-        run: pnpm install --frozen-lockfile || pnpm install
+        run: pnpm install
+
+      - name: Build Shared Packages
+        run: |
+          pnpm --filter @don/shared run build
+          pnpm --filter @don/ai run build
+          pnpm --filter @don/ui run build
 
       - name: Round 2: Type Check Workspaces
         run: pnpm run typecheck
