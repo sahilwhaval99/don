@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "DON Browser Companion",
+  "version": "1.0.0",
+  "description": "Minimal-permission companion for Digital Operations Navigator (DON)",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://*/*"
+  ],
+  "background": {
+    "service_worker": "dist/background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "DON Browser Companion"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["dist/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

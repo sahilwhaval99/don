@@ -1,0 +1,57 @@
+name: DON Monorepo CI Verification Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    name: Full 10-Round Verification Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Round 1: Dependency Install
+        run: pnpm install --frozen-lockfile || pnpm install
+
+      - name: Round 2: Type Check Workspaces
+        run: pnpm run typecheck
+
+      - name: Round 3: Lint Check Workspaces
+        run: pnpm run lint
+
+      - name: Round 4: Unit Test Suite
+        run: pnpm run test:unit
+
+      - name: Round 5: API Integration Tests
+        run: pnpm run test:integration
+
+      - name: Round 6: Static Web Build (GitHub Pages Export)
+        run: pnpm --filter @don/web run build
+
+      - name: Round 7: Docker Container Validation
+        run: pnpm run test:docker
+
+      - name: Round 8: End-to-End User Flow Tests
+        run: pnpm run test:e2e
+
+      - name: Round 9: Desktop Mock Test Suite
+        run: pnpm run test:desktop
+
+      - name: Round 10: Android Companion Mock Test Suite
+        run: pnpm run test:android

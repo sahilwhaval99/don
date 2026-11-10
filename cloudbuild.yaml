@@ -1,0 +1,44 @@
+# Google Cloud Build Pipeline for DON Backend API (Deploy to Cloud Run)
+steps:
+  # Step 1: Build the multi-stage production Docker image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/don-api:$SHORT_SHA'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/don-api:latest'
+      - '-f'
+      - 'apps/api/Dockerfile'
+      - '.'
+
+  # Step 2: Push container image to Google Container / Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/don-api:$SHORT_SHA'
+
+  # Step 3: Deploy to Cloud Run with security, concurrency, and environment flags
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'don-api'
+      - '--image'
+      - 'gcr.io/$PROJECT_ID/don-api:$SHORT_SHA'
+      - '--region'
+      - 'us-central1'
+      - '--platform'
+      - 'managed'
+      - '--allow-unauthenticated'
+      - '--port'
+      - '8080'
+      - '--set-env-vars'
+      - 'NODE_ENV=production,PORT=8080'
+
+images:
+  - 'gcr.io/$PROJECT_ID/don-api:$SHORT_SHA'
+  - 'gcr.io/$PROJECT_ID/don-api:latest'
+
+timeout: '1200s'

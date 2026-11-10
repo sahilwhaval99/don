@@ -1,0 +1,41 @@
+{
+  "name": "don-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DON (Digital Operations Navigator): Secure, multi-device AI assistant monorepo",
+  "scripts": {
+    "build": "pnpm --filter @don/config build --if-present && pnpm --filter @don/shared run build && pnpm --filter @don/ai run build && pnpm --filter @don/ui run build && pnpm --filter @don/api run build && pnpm --filter @don/desktop-agent run build && pnpm --filter @don/browser-extension run build",
+    "build:web": "pnpm --filter @don/web run build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "test": "vitest run",
+    "test:unit": "vitest run packages/ apps/desktop-agent/ apps/browser-extension/ apps/api/src/__tests__/unit",
+    "test:integration": "vitest run apps/api/src/__tests__/integration",
+    "test:e2e": "vitest run tests/e2e",
+    "test:desktop": "vitest run tests/desktop",
+    "test:android": "vitest run tests/android",
+    "test:docker": "tsx scripts/verify-docker.ts",
+    "verify": "tsx scripts/verify-all.ts",
+    "verify:all": "tsx scripts/verify-all.ts",
+    "verify:1": "tsx scripts/verify-round.ts 1",
+    "verify:2": "tsx scripts/verify-round.ts 2",
+    "verify:3": "tsx scripts/verify-round.ts 3",
+    "verify:4": "tsx scripts/verify-round.ts 4",
+    "verify:5": "tsx scripts/verify-round.ts 5",
+    "verify:6": "tsx scripts/verify-round.ts 6",
+    "verify:7": "tsx scripts/verify-round.ts 7",
+    "verify:8": "tsx scripts/verify-round.ts 8",
+    "verify:9": "tsx scripts/verify-round.ts 9",
+    "verify:10": "tsx scripts/verify-round.ts 10"
+  },
+  "devDependencies": {
+    "@types/node": "^22.8.7",
+    "@typescript-eslint/eslint-plugin": "8.0.0",
+    "@typescript-eslint/parser": "8.0.0",
+    "eslint": "^8.57.1",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

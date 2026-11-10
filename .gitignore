@@ -1,0 +1,13 @@
+node_modules/
+.pnpm-store/
+dist/
+out/
+.next/
+build/
+*.tsbuildinfo
+.env
+.env.local
+coverage/
+target/
+.gradle/
+*.log

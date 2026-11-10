@@ -1,0 +1,11 @@
+<resources>
+    <color name="bg_dark">#0a0a0c</color>
+    <color name="surface_dark">#121216</color>
+    <color name="border_dark">#27272a</color>
+    <color name="amber_primary">#f59e0b</color>
+    <color name="amber_hover">#d97706</color>
+    <color name="text_primary">#f4f4f5</color>
+    <color name="text_muted">#a1a1aa</color>
+    <color name="emerald_online">#10b981</color>
+    <color name="rose_danger">#f43f5e</color>
+</resources>

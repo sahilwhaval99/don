@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">DON Companion</string>
+    <string name="title_dashboard">DON Companion Dashboard</string>
+    <string name="status_connected">Connected to DON Core</string>
+    <string name="status_disconnected">Disconnected / Unpaired</string>
+    <string name="status_kill_switch">EMERGENCY KILL SWITCH ENGAGED</string>
+    <string name="btn_pair">Pair with DON Core</string>
+    <string name="btn_test_notification">Test Task Notification</string>
+    <string name="btn_open_dialer">Propose Phone Dialer</string>
+    <string name="btn_direct_call">Initiate Direct Call (Requires CALL_PHONE)</string>
+    <string name="btn_approve">Approve</string>
+    <string name="btn_reject">Reject</string>
+    <string name="approval_dialog_title">Action Approval Required</string>
+    <string name="call_phone_rationale">DON requires explicit permission to initiate direct calls on your behalf. Wi-Fi calling routing remains controlled by your carrier and device settings.</string>
+</resources>

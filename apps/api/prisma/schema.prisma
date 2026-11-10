@@ -1,0 +1,230 @@
+// Prisma schema for DON (Digital Operations Navigator)
+// Deployable to PostgreSQL on Cloud SQL / Supabase / Neon / Local
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String         @id @default(uuid())
+  email        String         @unique
+  passwordHash String
+  name         String
+  role         String         @default("OWNER")
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  refreshTokens   RefreshToken[]
+  tasks           Task[]
+  projects        Project[]
+  goals           Goal[]
+  routines        Routine[]
+  memories        Memory[]
+  documents       Document[]
+  devices         Device[]
+  allowlistedApps AllowlistedApp[]
+  automations     AutomationRecipe[]
+  approvals       ApprovalRequest[]
+  auditLogs       AuditLog[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  revoked   Boolean  @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Task {
+  id               String   @id @default(uuid())
+  userId           String
+  projectId        String?
+  title            String
+  description      String   @default("")
+  status           String   @default("TODO")
+  priority         String   @default("MEDIUM")
+  dueDate          DateTime?
+  timezone         String   @default("UTC")
+  labelsJson       String   @default("[]")
+  subtasksJson     String   @default("[]")
+  dependenciesJson String   @default("[]")
+  recurringCron    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+}
+
+model Project {
+  id          String   @id @default(uuid())
+  userId      String
+  name        String
+  description String   @default("")
+  color       String   @default("#f59e0b")
+  status      String   @default("ACTIVE")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user  User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks Task[]
+}
+
+model Goal {
+  id                 String   @id @default(uuid())
+  userId             String
+  title              String
+  description        String   @default("")
+  targetDate         DateTime?
+  progressPercentage Float    @default(0)
+  milestonesJson     String   @default("[]")
+  blockersJson       String   @default("[]")
+  weeklyReview       String   @default("")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Routine {
+  id           String   @id @default(uuid())
+  userId       String
+  name         String
+  description  String   @default("")
+  enabled      Boolean  @default(true)
+  scheduleCron String?
+  stepsJson    String   @default("[]")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Memory {
+  id               String    @id @default(uuid())
+  userId           String
+  category         String
+  key              String
+  content          String
+  reasonForStorage String    @default("Explicit user instruction")
+  isEncrypted      Boolean   @default(true)
+  confidenceScore  Float     @default(1.0)
+  lastAccessedAt   DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Document {
+  id        String   @id @default(uuid())
+  userId    String
+  name      String
+  fileType  String
+  sizeBytes Int
+  pageCount Int      @default(1)
+  rawText   String
+  summary   String   @default("")
+  tagsJson  String   @default("[]")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Device {
+  id               String    @id @default(uuid())
+  userId           String
+  name             String
+  deviceType       String
+  status           String    @default("PENDING")
+  publicKey        String?
+  lastSeenAt       DateTime?
+  ipAddress        String?
+  clientVersion    String    @default("1.0.0")
+  capabilitiesJson String    @default("[]")
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AllowlistedApp {
+  id              String   @id @default(uuid())
+  userId          String
+  appName         String
+  executablePath  String
+  icon            String   @default("app-window")
+  permissionLevel String   @default("LAUNCH_ONLY")
+  isEnabled       Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AutomationRecipe {
+  id                 String    @id @default(uuid())
+  userId             String
+  name               String
+  description        String    @default("")
+  triggerJson        String
+  conditionsJson     String    @default("[]")
+  actionsJson        String
+  enabled            Boolean   @default(true)
+  rateLimitPerMinute Int       @default(5)
+  lastRunAt          DateTime?
+  totalExecutions    Int       @default(0)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ApprovalRequest {
+  id              String   @id @default(uuid())
+  userId          String
+  deviceId        String?
+  toolName        String
+  parametersJson  String
+  consequenceJson String
+  status          String   @default("PENDING")
+  decisionMadeBy  String   @default("USER")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id                 String   @id @default(uuid())
+  userId             String
+  deviceId           String?
+  deviceType         String   @default("WEB")
+  toolName           String
+  parametersJson     String
+  targetResource     String   @default("SYSTEM")
+  consequenceSummary String
+  status             String
+  decisionMadeBy     String   @default("USER")
+  errorDetails       String?
+  createdAt          DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model KillSwitch {
+  id                String    @id @default("singleton")
+  isActivated       Boolean   @default(false)
+  activatedAt       DateTime?
+  activatedByUserId String?
+  reason            String    @default("")
+}

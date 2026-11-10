@@ -1,0 +1,22 @@
+{
+  "name": "@don/ai",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI provider abstraction, tool orchestration, and search citation engine for DON",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@don/shared": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "tsup": "^8.3.5"
+  }
+}
