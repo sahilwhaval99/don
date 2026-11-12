@@ -94,8 +94,7 @@ export class MockAIProvider implements AIProvider {
 
     // 2. Greetings
     if (/^(hi|hello|hey|good\s*(morning|afternoon|evening)|greetings)\b/i.test(lowerPrompt)) {
-      const ownerName = context?.userName || 'Commander';
-      reply = `Good day, ${ownerName}. DON is ready and synchronized across your desktop and companion systems. How may I assist?`;
+      reply = `Good day, Commander. DON is ready—how may I assist?`;
     }
     // 3. Capabilities & Help
     else if (

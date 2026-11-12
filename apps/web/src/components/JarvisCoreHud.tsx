@@ -259,7 +259,7 @@ export function JarvisCoreHud({
         <div className="flex flex-wrap items-center gap-3">
           <span className="flex items-center gap-1.5 text-cyan-300">
             <Cpu className="w-3.5 h-3.5 text-cyan-400" />
-            <span>J.A.R.V.I.S. HUD</span>
+            <span>DON VOICE ASSISTANT</span>
           </span>
           <span
             className={`flex items-center gap-1.5 px-2 py-0.5 rounded border ${
@@ -376,10 +376,10 @@ export function JarvisCoreHud({
                     ? 'Mic stream unavailable — using Web Speech fallback spectrum.'
                     : 'Listening… auto-submits after 1.2s of silence. Say "stop listening" to exit.'
                   : isSpeaking
-                  ? 'Synthesizing J.A.R.V.I.S. response (mic paused to prevent echo).'
+                  ? 'Synthesizing DON Voice response (mic paused to prevent echo).'
                   : isVoiceLoopEnabled
                   ? 'Continuous Voice Loop armed. Ready for next command.'
-                  : 'Press Continuous Voice Mode for hands-free J.A.R.V.I.S. loop or type below.'}
+                  : 'Press DON Voice Assistant for hands-free loop or type below.'}
               </p>
             </div>
           </div>
@@ -398,7 +398,7 @@ export function JarvisCoreHud({
             >
               {isVoiceLoopEnabled ? <Mic className="w-3.5 h-3.5 animate-pulse" /> : <MicOff className="w-3.5 h-3.5" />}
               <span>
-                {isVoiceLoopEnabled ? 'J.A.R.V.I.S. Loop: ON' : 'Continuous Voice Mode'}
+                {isVoiceLoopEnabled ? 'DON Voice Loop: ON' : 'DON Voice Assistant'}
               </span>
             </button>
 

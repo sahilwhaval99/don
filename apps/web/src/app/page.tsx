@@ -112,8 +112,7 @@ export default function DashboardPage() {
     {
       id: 'init-1',
       role: 'assistant',
-      content:
-        'Greetings, Commander. Digital Operations Navigator (DON) is active and synchronized across your Windows desktop agent, paired companion relay, and Google Search integrations. How may I assist your operations today?',
+      content: 'Good day, Commander. DON is ready—how may I assist?',
       createdAt: new Date().toISOString(),
     },
   ]);
@@ -807,7 +806,7 @@ export default function DashboardPage() {
         system_instruction: {
           parts: [
             {
-              text: 'You are DON (J.A.R.V.I.S. / Digital Operations Navigator), a crisp, intelligent, multi-device AI assistant. Default to 1-3 short, direct sentences unless the user explicitly asks for a detailed explanation or code. Cite Google Search sources where applicable.',
+              text: 'You are DON (Digital Operations Navigator) Voice Assistant, a crisp, respectful, multi-device AI assistant. Default to 1-3 short, direct sentences unless the user explicitly asks for a detailed explanation or code. Cite Google Search sources where applicable.',
             },
           ],
         },
@@ -1269,9 +1268,9 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
 \`\`\``;
           }
         }
-        // F. Greetings (1-2 crisp J.A.R.V.I.S. sentences)
+        // F. Greetings (1 crisp respectful sentence)
         else if (/^(hi|hello|hey|good\s*(morning|afternoon|evening)|greetings)\b/i.test(lower)) {
-          fallbackReply = `Online and ready, Commander. All DON subsystems are nominal—what are your orders?`;
+          fallbackReply = `Good day, Commander. DON is ready—how may I assist?`;
         }
         // G. Explanations & Concepts (1-3 crisp sentences unless user asks for detailed)
         else if (lower.includes('explain') || lower.includes('how does') || lower.includes('what is') || lower.includes('tell me about')) {
