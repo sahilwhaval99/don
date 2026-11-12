@@ -202,7 +202,7 @@ export async function deviceRoutes(fastify: FastifyInstance) {
 
   // Companion WebSocket Relay Endpoint (Local mDNS + Cloud Relay)
   const handleRelayWebSocket = (connection: any, _req: any) => {
-    const ws = connection.socket;
+    const ws = connection?.socket || connection;
     relayService.registerSocket(ws);
 
     ws.on('message', (message: any) => {
