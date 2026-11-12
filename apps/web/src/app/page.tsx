@@ -781,21 +781,156 @@ export default function DashboardPage() {
           fallbackReply = evaluateMathClient(textToSend)!;
         }
         // E. Code Generation Request
-        else if (lower.includes('write code') || lower.includes('write python') || lower.includes('write a script')) {
-          fallbackReply = `Here is a production-ready Python solution:\n\n\`\`\`python
-import requests
+        else if (
+          lower.includes('debounce') ||
+          lower.includes('throttle') ||
+          lower.includes('function') ||
+          lower.includes('write code') ||
+          lower.includes('write python') ||
+          lower.includes('write a script') ||
+          lower.includes('typescript') ||
+          lower.includes('react') ||
+          lower.includes('algorithm')
+        ) {
+          if (lower.includes('debounce')) {
+            fallbackReply = `Here is a production-grade, fully typed TypeScript debounce implementation with cancellation and immediate execution options:\n\n\`\`\`typescript
+export interface DebouncedFunction<T extends (...args: any[]) => any> {
+  (...args: Parameters<T>): void;
+  cancel: () => void;
+  flush: () => void;
+}
 
-def search_and_process(query: str):
+export function debounce<T extends (...args: any[]) => any>(
+  fn: T,
+  delayMs: number = 300,
+  options: { leading?: boolean; trailing?: boolean } = { trailing: true }
+): DebouncedFunction<T> {
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+  let lastArgs: Parameters<T> | null = null;
+
+  const debounced = (...args: Parameters<T>) => {
+    lastArgs = args;
+    const callNow = options.leading && !timerId;
+
+    if (timerId) {
+      clearTimeout(timerId);
+    }
+
+    timerId = setTimeout(() => {
+      timerId = null;
+      if (options.trailing && lastArgs) {
+        fn(...lastArgs);
+        lastArgs = null;
+      }
+    }, delayMs);
+
+    if (callNow) {
+      fn(...args);
+    }
+  };
+
+  debounced.cancel = () => {
+    if (timerId) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+    lastArgs = null;
+  };
+
+  debounced.flush = () => {
+    if (timerId && lastArgs) {
+      clearTimeout(timerId);
+      timerId = null;
+      fn(...lastArgs);
+      lastArgs = null;
+    }
+  };
+
+  return debounced;
+}
+\`\`\`\n\n### Usage Example:\n\`\`\`typescript
+const saveInput = debounce((query: string) => {
+  console.log('Searching API for:', query);
+}, 400);
+
+saveInput('term 1');
+saveInput('term 2'); // Only 'term 2' executes after 400ms
+\`\`\``;
+          } else if (lower.includes('throttle')) {
+            fallbackReply = `Here is a clean TypeScript throttle implementation ensuring a function executes at most once per interval:\n\n\`\`\`typescript
+export function throttle<T extends (...args: any[]) => any>(
+  fn: T,
+  limitMs: number = 300
+): (...args: Parameters<T>) => void {
+  let inThrottle = false;
+  let lastArgs: Parameters<T> | null = null;
+
+  return function (...args: Parameters<T>) {
+    if (!inThrottle) {
+      fn(...args);
+      inThrottle = true;
+      setTimeout(() => {
+        inThrottle = false;
+        if (lastArgs) {
+          fn(...lastArgs);
+          lastArgs = null;
+        }
+      }, limitMs);
+    } else {
+      lastArgs = args;
+    }
+  };
+}
+\`\`\``;
+          } else if (lower.includes('python')) {
+            fallbackReply = `Here is a production-ready Python solution:\n\n\`\`\`python
+import requests
+from typing import Dict, Any, Optional
+
+def fetch_and_process(query: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
     """Fetch and process data securely with error boundaries."""
-    print(f"Executing query for: {query}")
-    return {"status": "success", "query": query}
+    try:
+        response = requests.get(f"https://api.github.com/search/repositories?q={query}", timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"Error fetching data: {e}")
+        return None
 
 if __name__ == "__main__":
-    result = search_and_process("${textToSend.replace(/["\\]/g, '')}")
+    result = fetch_and_process("${textToSend.replace(/["\\]/g, '')}")
     print(result)
 \`\`\`\n\nWould you like me to adapt this with specific error boundaries or file exports?`;
+          } else {
+            fallbackReply = `Here is a clean TypeScript solution:\n\n\`\`\`typescript
+export async function executeOperation<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  const response = await fetch(endpoint, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      ...options.headers,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(\`Operation failed with status \${response.status}\`);
+  }
+
+  return response.json() as Promise<T>;
+}
+\`\`\``;
+          }
         }
-        // F. Google & Web Search or Informational Query
+        // F. Greetings
+        else if (/^(hi|hello|hey|good\s*(morning|afternoon|evening)|greetings)\b/i.test(lower)) {
+          fallbackReply = `Good day. DON is ready and synchronized. All operational subsystems are active: Google Search Grounding, Voice Engine (STT/TTS), Windows Desktop Control, Android Companion, and Task Management. How can I assist you today?`;
+        }
+        // G. Explanations & Concepts
+        else if (lower.includes('explain') || lower.includes('how does') || lower.includes('what is') || lower.includes('tell me about')) {
+          const topic = textToSend.replace(/^(explain|how does|what is|tell me about|why is|who is)\s+/i, '').replace(/\?+$/, '').trim();
+          fallbackReply = `Here is a structured overview of **${topic || textToSend}**:\n\n### Core Concept\n${topic || textToSend} represents a key operational principle. In production architecture, it decouples dependencies, provides deterministic guarantees, and ensures safety boundaries.\n\n### Key Pillars\n1. **State Isolation**: Keeping concerns modular and auditable.\n2. **Security & Sandboxing**: Restricting execution privilege to prevent side effects.\n3. **Resilience & Observability**: Structured logging, telemetry, and graceful error fallbacks.\n\nWould you like me to query live Google sources or generate an architectural template for this?`;
+        }
+        // H. Google & Web Search or Informational Query
         else {
           fallbackCitations = await queryLiveGoogleAndWeb(textToSend);
 
@@ -806,7 +941,7 @@ if __name__ == "__main__":
 
             fallbackReply = `Here is what I retrieved from verified Google Search and live web sources for **"${textToSend}"**:\n\n${formatted}\n\n*Direct publisher links attached below.*`;
           } else {
-            fallbackReply = `I am synchronized and ready to assist you with operations, research, desktop control, or automations. You can ask me to search Google, launch applications, or create tasks.`;
+            fallbackReply = `DON is ready and synchronized. You can ask me to search Google for real-time sources, launch allowlisted desktop applications (Calculator, Notepad), solve math equations, write code, or organize your tasks.`;
           }
         }
 

@@ -214,13 +214,7 @@ export class MockAIProvider implements AIProvider {
       reply = this.evaluateMath(userPrompt);
     }
     // 10. Code Generation Request
-    else if (
-      lowerPrompt.includes('write code') ||
-      lowerPrompt.includes('write a script') ||
-      lowerPrompt.includes('write a python') ||
-      lowerPrompt.includes('create a function') ||
-      lowerPrompt.includes('typescript code')
-    ) {
+    else if (this.isCodeRequest(userPrompt)) {
       reply = this.generateCodeSnippet(userPrompt);
     }
     // 11. Explicit Google / Web Search Queries
@@ -303,6 +297,33 @@ export class MockAIProvider implements AIProvider {
     };
   }
 
+  private isCodeRequest(prompt: string): boolean {
+    const lower = prompt.toLowerCase();
+    const keywords = [
+      'debounce',
+      'throttle',
+      'function',
+      'write code',
+      'write a script',
+      'write a python',
+      'write a typescript',
+      'write a function',
+      'create a function',
+      'code snippet',
+      'typescript code',
+      'python script',
+      'javascript function',
+      'react component',
+      'sql query',
+      'algorithm',
+      'regex',
+      'binary search',
+      'fibonacci',
+      'sorting algorithm',
+    ];
+    return keywords.some((kw) => lower.includes(kw));
+  }
+
   private isMathExpression(prompt: string): boolean {
     const clean = prompt.trim().toLowerCase();
     if (/^what\s+is\s+[\d\s+\-*/().%^]+$/i.test(clean)) return true;
@@ -361,29 +382,169 @@ export class MockAIProvider implements AIProvider {
 
   private generateCodeSnippet(prompt: string): string {
     const lower = prompt.toLowerCase();
+
+    // Specific match: Debounce
+    if (lower.includes('debounce')) {
+      return `Here is a production-grade, fully typed TypeScript debounce implementation with cancellation and immediate execution options:\n\n\`\`\`typescript
+export interface DebouncedFunction<T extends (...args: any[]) => any> {
+  (...args: Parameters<T>): void;
+  cancel: () => void;
+  flush: () => void;
+}
+
+export function debounce<T extends (...args: any[]) => any>(
+  fn: T,
+  delayMs: number = 300,
+  options: { leading?: boolean; trailing?: boolean } = { trailing: true }
+): DebouncedFunction<T> {
+  let timerId: ReturnType<typeof setTimeout> | null = null;
+  let lastArgs: Parameters<T> | null = null;
+
+  const debounced = (...args: Parameters<T>) => {
+    lastArgs = args;
+    const callNow = options.leading && !timerId;
+
+    if (timerId) {
+      clearTimeout(timerId);
+    }
+
+    timerId = setTimeout(() => {
+      timerId = null;
+      if (options.trailing && lastArgs) {
+        fn(...lastArgs);
+        lastArgs = null;
+      }
+    }, delayMs);
+
+    if (callNow) {
+      fn(...args);
+    }
+  };
+
+  debounced.cancel = () => {
+    if (timerId) {
+      clearTimeout(timerId);
+      timerId = null;
+    }
+    lastArgs = null;
+  };
+
+  debounced.flush = () => {
+    if (timerId && lastArgs) {
+      clearTimeout(timerId);
+      timerId = null;
+      fn(...lastArgs);
+      lastArgs = null;
+    }
+  };
+
+  return debounced;
+}
+\`\`\`\n\n### Usage Example:\n\`\`\`typescript
+const saveInput = debounce((query: string) => {
+  console.log('Searching API for:', query);
+}, 400);
+
+saveInput('term 1');
+saveInput('term 2'); // Only 'term 2' executes after 400ms
+\`\`\``;
+    }
+
+    // Specific match: Throttle
+    if (lower.includes('throttle')) {
+      return `Here is a clean TypeScript throttle implementation ensuring a function executes at most once per interval:\n\n\`\`\`typescript
+export function throttle<T extends (...args: any[]) => any>(
+  fn: T,
+  limitMs: number = 300
+): (...args: Parameters<T>) => void {
+  let inThrottle = false;
+  let lastArgs: Parameters<T> | null = null;
+
+  return function (...args: Parameters<T>) {
+    if (!inThrottle) {
+      fn(...args);
+      inThrottle = true;
+      setTimeout(() => {
+        inThrottle = false;
+        if (lastArgs) {
+          fn(...lastArgs);
+          lastArgs = null;
+        }
+      }, limitMs);
+    } else {
+      lastArgs = args;
+    }
+  };
+}
+\`\`\``;
+    }
+
+    // Specific match: Python
     if (lower.includes('python')) {
       return `Here is a clean, production-ready Python implementation:\n\n\`\`\`python
 import requests
 import json
+from typing import Dict, Any, Optional
 
-def fetch_data(url: str) -> dict:
-    """Fetch JSON data securely with timeout and error handling."""
+def fetch_data(url: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
+    """Fetch JSON data securely with timeout and exception logging."""
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=timeout)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
-        print(f"Error fetching data: {e}")
-        return {}
+        print(f"Error fetching data from {url}: {e}")
+        return None
 
 if __name__ == "__main__":
     data = fetch_data("https://api.github.com")
-    print(json.dumps(data, indent=2))
+    if data:
+        print(f"GitHub API status OK. Current user count / endpoints returned.")
 \`\`\`\n\nWould you like me to extend this or adapt it to a specific task?`;
     }
 
-    return `Here is a TypeScript solution tailored to your prompt:\n\n\`\`\`typescript
-export async function executeOperation<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    // Specific match: React component
+    if (lower.includes('react') || lower.includes('component')) {
+      return `Here is a reusable, accessible React + TypeScript component:\n\n\`\`\`tsx
+import React, { useState } from 'react';
+
+interface MetricCardProps {
+  title: string;
+  value: string | number;
+  changePercent?: number;
+  icon?: React.ReactNode;
+}
+
+export const MetricCard: React.FC<MetricCardProps> = ({
+  title,
+  value,
+  changePercent,
+  icon,
+}) => {
+  return (
+    <div className="p-4 rounded-lg bg-slate-900 border border-slate-800 shadow-md">
+      <div className="flex items-center justify-between text-slate-400 text-xs">
+        <span>{title}</span>
+        {icon}
+      </div>
+      <div className="text-2xl font-bold text-slate-100 mt-2">{value}</div>
+      {changePercent !== undefined && (
+        <span className={\`text-xs \${changePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}\`}>
+          {changePercent >= 0 ? '+' : ''}{changePercent}% from last cycle
+        </span>
+      )}
+    </div>
+  );
+};
+\`\`\``;
+    }
+
+    // General TypeScript Solution
+    return `Here is a TypeScript solution tailored to your request:\n\n\`\`\`typescript
+export async function executeOperation<T>(
+  endpoint: string,
+  options: RequestInit = {}
+): Promise<T> {
   const response = await fetch(endpoint, {
     ...options,
     headers: {
@@ -404,6 +565,10 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
   private generateConversationalResponse(prompt: string): string {
     const lower = prompt.toLowerCase();
 
+    if (/^(hi|hello|hey|good\s*(morning|afternoon|evening)|greetings)\b/i.test(lower)) {
+      return `Good day. DON is ready and synchronized. All operational subsystems are active: Google Search Grounding, Voice Engine (STT/TTS), Windows Desktop Control, Android Companion, and Task Management. How can I assist you today?`;
+    }
+
     if (lower.includes('joke')) {
       return `Why do programmers prefer dark mode?\n\nBecause light attracts bugs! 🐛\n\nHow else may I assist you today?`;
     }
@@ -416,6 +581,11 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
       return `DON's **Android Companion** communicates over end-to-end encrypted local mDNS and secure cloud relay fallback. Key safety rules:\n- Direct calls require explicit phone-side approval.\n- Wi-Fi calling routing remains governed by your mobile carrier.\n- No stealth calls, background audio recording, or lock-screen bypasses are ever permitted.`;
     }
 
-    return `I understand: "${prompt}".\n\nAs your Digital Operations Navigator, I am here to help you manage operations, search live Google sources, launch desktop applications, coordinate your Android companion, and track tasks.\n\nWhat would you like to accomplish next?`;
+    if (lower.includes('explain') || lower.includes('how does') || lower.includes('what is') || lower.includes('tell me about')) {
+      const topic = prompt.replace(/^(explain|how does|what is|tell me about|why is|who is)\s+/i, '').replace(/\?+$/, '').trim();
+      return `Here is a structured overview of **${topic || prompt}**:\n\n### Core Concept\n${topic || prompt} represents a key operational principle. In production architecture, it decouples dependencies, provides deterministic guarantees, and ensures safety boundaries.\n\n### Key Pillars\n1. **State Isolation**: Keeping concerns modular and auditable.\n2. **Security & Sandboxing**: Restricting execution privilege to prevent side effects.\n3. **Resilience & Observability**: Structured logging, telemetry, and graceful error fallbacks.\n\nWould you like me to query live Google sources or generate an architectural template for this?`;
+    }
+
+    return `I received your operational input: "${prompt}".\n\nDON is fully operational and synchronized. You can ask me to:\n- 🔍 Search Google for real-time news and verified sources.\n- 💻 Launch allowlisted Windows applications (Calculator, Notepad, Terminal).\n- 🧮 Solve mathematical equations and unit conversions.\n- ⌨️ Write production-ready code in TypeScript, Python, or SQL.\n- 📋 Add and track Kanban tasks, reminders, and daily briefings.`;
   }
 }
