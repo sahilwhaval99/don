@@ -1,21 +1,20 @@
 import { FastifyInstance } from 'fastify';
-import {
-  ToolCallProposal,
-  ApprovalConsequence,
-} from '@don/shared';
-import { MockAIProvider, GeminiAIProvider, AIContext, ChatMessage } from '@don/ai';
+import child_process from 'child_process';
+import { MockAIProvider, GeminiAIProvider, AIContext, ChatMessage, UnifiedSearchProvider } from '@don/ai';
 import { db } from '../db/index.js';
 import { auditService } from '../services/audit.service.js';
 import { relayService } from '../services/relay.service.js';
 
-const aiProvider =
-  process.env.AI_PROVIDER === 'gemini' && process.env.GEMINI_API_KEY
-    ? new GeminiAIProvider(process.env.GEMINI_API_KEY)
-    : new MockAIProvider();
-
 export async function chatRoutes(fastify: FastifyInstance) {
+  // Chat Endpoint with Dynamic AI Provider & Search Engine Support
   fastify.post('/api/chat', async (req, reply) => {
-    const body = req.body as { message: string; history?: ChatMessage[] };
+    const body = req.body as {
+      message: string;
+      history?: ChatMessage[];
+      geminiApiKey?: string;
+      googleSearchApiKey?: string;
+      googleSearchEngineId?: string;
+    };
     const prompt = body.message || '';
     const owner = Array.from(db.users.values())[0];
     const userId = owner?.id || '00000000-0000-0000-0000-000000000001';
@@ -59,7 +58,7 @@ export async function chatRoutes(fastify: FastifyInstance) {
 
     const context: AIContext = {
       userId,
-      userName: owner?.name || 'Master Owner',
+      userName: owner?.name || 'Commander',
       userTimezone: 'UTC',
       recentMemories: memories,
       connectedDocuments: docs,
@@ -76,10 +75,17 @@ export async function chatRoutes(fastify: FastifyInstance) {
       },
     ];
 
-    // 3. Generate AI response and tool proposals
-    const response = await aiProvider.generateResponse(messages, context);
+    // 3. Choose AI Provider (Gemini if key provided, else IntelligentAssistantProvider)
+    const geminiKey = body.geminiApiKey || process.env.GEMINI_API_KEY;
+    const provider =
+      geminiKey && !geminiKey.includes('placeholder')
+        ? new GeminiAIProvider(geminiKey)
+        : new MockAIProvider();
 
-    // 4. Register pending approvals for proposals requiring confirmation
+    // 4. Generate AI response and tool proposals
+    const response = await provider.generateResponse(messages, context);
+
+    // 5. Register pending approvals for proposals requiring confirmation
     for (const proposal of response.toolProposals) {
       if (proposal.requiresApproval) {
         db.approvals.set(proposal.id, { ...proposal, userId });
@@ -104,6 +110,24 @@ export async function chatRoutes(fastify: FastifyInstance) {
     }
 
     return reply.status(200).send(response);
+  });
+
+  // Dedicated Google & Web Search Endpoint
+  fastify.post('/api/search', async (req, reply) => {
+    const body = req.body as {
+      query: string;
+      maxResults?: number;
+      googleApiKey?: string;
+      googleCx?: string;
+    };
+    const query = (body.query || '').trim();
+    if (!query) {
+      return reply.status(400).send({ error: 'Search query parameter is required.' });
+    }
+
+    const searchProvider = new UnifiedSearchProvider(body.googleApiKey, body.googleCx);
+    const results = await searchProvider.search(query, body.maxResults || 5, true);
+    return reply.status(200).send({ query, results });
   });
 
   // Approvals Listing
@@ -161,6 +185,28 @@ export async function chatRoutes(fastify: FastifyInstance) {
         payload: { proposalId: id, parameters: proposal.parameters },
         timestamp: new Date().toISOString(),
       });
+
+      // On local Windows system, execute allowlisted app immediately
+      if (process.platform === 'win32' && proposal.toolName === 'propose_open_desktop_app') {
+        const appName = String(proposal.parameters?.appName || '').toLowerCase();
+        let exePath: string | null = null;
+        if (appName.includes('calc')) exePath = 'calc.exe';
+        else if (appName.includes('notepad')) exePath = 'notepad.exe';
+        else if (appName.includes('paint')) exePath = 'mspaint.exe';
+        else if (appName.includes('terminal') || appName.includes('cmd')) exePath = 'cmd.exe';
+
+        if (exePath) {
+          try {
+            const child = child_process.spawn('cmd.exe', ['/c', 'start', '', exePath], {
+              detached: true,
+              stdio: 'ignore',
+            });
+            child.unref();
+          } catch (e: any) {
+            console.warn('Local app launch notice:', e.message);
+          }
+        }
+      }
     } else if (proposal.consequence.requiresAndroidCompanion) {
       relayService.broadcast({
         id: crypto.randomUUID(),
@@ -168,6 +214,25 @@ export async function chatRoutes(fastify: FastifyInstance) {
         payload: { proposalId: id, approved: true, parameters: proposal.parameters },
         timestamp: new Date().toISOString(),
       });
+
+      // Trigger dialer protocol on Windows if dialer intent requested
+      if (process.platform === 'win32' && proposal.parameters?.phoneNumber) {
+        try {
+          const phoneUrl = `tel:${String(proposal.parameters.phoneNumber).replace(/\s+/g, '')}`;
+          child_process.spawn('cmd.exe', ['/c', 'start', '', phoneUrl], { detached: true, stdio: 'ignore' }).unref();
+        } catch {
+          // Ignore dialer registration error
+        }
+      }
+    } else if (proposal.toolName === 'propose_open_website' && proposal.parameters?.url) {
+      const url = String(proposal.parameters.url);
+      if (process.platform === 'win32') {
+        try {
+          child_process.spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
+        } catch {
+          // Ignore website handler registration error
+        }
+      }
     }
 
     auditService.record({

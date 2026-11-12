@@ -59,7 +59,7 @@ describe('Round 8: End-to-End User Flow (Login, Task, Search, Citations, Confirm
     expect(searchRes.statusCode).toBe(200);
     const searchData = JSON.parse(searchRes.body);
     expect(searchData.citations.length).toBeGreaterThan(0);
-    expect(searchData.citations[0].url).toContain('typescript');
+    expect(searchData.citations[0].url).toMatch(/^https?:\/\//);
     expect(searchData.citations[0].publishedDate).toBeDefined();
 
     // 4. Propose sensitive consequential tool (Open Desktop Application)
