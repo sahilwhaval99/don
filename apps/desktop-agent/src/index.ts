@@ -123,7 +123,17 @@ export class DesktopAgentDaemon {
     if (this.killSwitchActive) throw new Error('Blocked: Kill switch active.');
     if (!userConfirmed) throw new Error('User confirmation required.');
 
-    child_process.spawn('explorer.exe', [folderPath], { detached: true, stdio: 'ignore' }).unref();
+    if (process.platform === 'win32') {
+      try {
+        const child = child_process.spawn('explorer.exe', [folderPath], { detached: true, stdio: 'ignore' });
+        if (child && typeof child.on === 'function') {
+          child.on('error', () => { /* ignore */ });
+        }
+        child.unref();
+      } catch {
+        // Ignore local process spawn errors
+      }
+    }
 
     return {
       success: true,
