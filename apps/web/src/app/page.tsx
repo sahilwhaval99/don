@@ -88,6 +88,9 @@ export default function DashboardPage() {
   const recognitionRef = useRef<any>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const autoSendTimerRef = useRef<any>(null);
+  const isRecognitionStoppingRef = useRef<boolean>(false);
+  const isSendingRef = useRef<boolean>(false);
+  const lastSentCommandRef = useRef<{ text: string; ts: number }>({ text: '', ts: 0 });
   const voiceLoopEnabledRef = useRef<boolean>(false);
   const voiceLoopPausedRef = useRef<boolean>(false);
   const killSwitchRef = useRef<boolean>(false);
@@ -408,12 +411,14 @@ export default function DashboardPage() {
   };
 
   const stopVoiceRecognition = () => {
+    isRecognitionStoppingRef.current = true;
     if (autoSendTimerRef.current) {
       clearTimeout(autoSendTimerRef.current);
       autoSendTimerRef.current = null;
     }
     if (recognitionRef.current) {
       try {
+        recognitionRef.current.onresult = null;
         recognitionRef.current.onend = null;
         recognitionRef.current.stop();
       } catch {}
@@ -447,12 +452,14 @@ export default function DashboardPage() {
       recognition.lang = 'en-US';
 
       recognition.onstart = () => {
+        isRecognitionStoppingRef.current = false;
         setIsVoiceListening(true);
         setVoiceTranscriptInterim('');
         setAssistantStatus('listening');
       };
 
       recognition.onresult = (event: any) => {
+        if (isRecognitionStoppingRef.current) return;
         let fullTranscript = '';
         for (let i = 0; i < event.results.length; ++i) {
           fullTranscript += event.results[i][0].transcript;
@@ -485,6 +492,7 @@ export default function DashboardPage() {
         // Auto-submit on 1.2s silence
         if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
         autoSendTimerRef.current = setTimeout(() => {
+          if (isRecognitionStoppingRef.current) return;
           stopVoiceRecognition();
           setInputPrompt('');
           handleSendMessageRef.current(trimmed, true);
@@ -511,7 +519,8 @@ export default function DashboardPage() {
           voiceLoopEnabledRef.current &&
           !voiceLoopPausedRef.current &&
           !killSwitchRef.current &&
-          !activeUtteranceRef.current
+          !activeUtteranceRef.current &&
+          !isSendingRef.current
         ) {
           setTimeout(() => {
             if (
@@ -842,8 +851,18 @@ export default function DashboardPage() {
 
   // Send Chat Prompt (API or Intelligent Client-Side Engine)
   const handleSendMessage = async (customPrompt?: string, fromVoice = false) => {
-    const textToSend = customPrompt || inputPrompt;
-    if (!textToSend.trim() || isSending) return;
+    const textToSend = (customPrompt || inputPrompt).trim();
+    if (!textToSend || isSending || isSendingRef.current) return;
+
+    const normalizedKey = textToSend.toLowerCase();
+    const now = Date.now();
+    if (
+      normalizedKey === lastSentCommandRef.current.text &&
+      now - lastSentCommandRef.current.ts < 3000
+    ) {
+      return;
+    }
+    lastSentCommandRef.current = { text: normalizedKey, ts: now };
 
     if (killSwitch.isActivated) {
       alert('Cannot execute: Stop All Automations kill switch is currently engaged.');
@@ -859,6 +878,7 @@ export default function DashboardPage() {
 
     setChatMessages((prev) => [...prev, userMsg]);
     setInputPrompt('');
+    isSendingRef.current = true;
     setIsSending(true);
     setAssistantStatus('thinking');
 
@@ -1340,6 +1360,7 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
         },
       ]);
     } finally {
+      isSendingRef.current = false;
       setIsSending(false);
     }
   };
@@ -2110,7 +2131,7 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
                               <Volume2 className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          <span>{new Date(msg.createdAt).toLocaleTimeString()}</span>
+                          <span suppressHydrationWarning>{new Date(msg.createdAt).toLocaleTimeString()}</span>
                         </div>
                       </div>
                       <div className="whitespace-pre-wrap">{msg.content}</div>
@@ -2807,7 +2828,7 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
                         >
                           {log.status}
                         </span>
-                        <div className="text-[9px] text-slate-500">
+                        <div className="text-[9px] text-slate-500" suppressHydrationWarning>
                           {new Date(log.createdAt).toLocaleTimeString()}
                         </div>
                       </div>

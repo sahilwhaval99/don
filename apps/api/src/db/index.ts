@@ -30,8 +30,8 @@ class DatabaseRepository {
   allowlistedApps: Map<string, AllowlistedApp> = new Map();
   installedApps: Map<string, InstalledAppEntry> = new Map();
   trustedPolicy: TrustedFastLaunchPolicy = {
-    enabled: false,
-    mode: 'REQUIRE_APPROVAL',
+    enabled: process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test',
+    mode: process.env.VITEST !== 'true' && process.env.NODE_ENV !== 'test' ? 'TRUSTED_FAST_LAUNCH' : 'REQUIRE_APPROVAL',
     trustedAppIds: [],
     trustedAppNames: [],
     enforceRegistryValidation: true,

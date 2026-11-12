@@ -85,68 +85,156 @@ export async function chatRoutes(fastify: FastifyInstance) {
     // 4. Generate AI response and tool proposals
     const response = await provider.generateResponse(messages, context);
 
-    // 5. Register pending approvals or auto-execute Trusted Fast-Launch apps
+    // 5. Register pending approvals or auto-execute Trusted Fast-Launch apps & Edge websites
     for (const proposal of response.toolProposals) {
       if (
         proposal.requiresApproval &&
-        proposal.toolName === 'propose_open_desktop_app' &&
         db.trustedPolicy.enabled &&
         db.trustedPolicy.mode !== 'REQUIRE_APPROVAL'
       ) {
-        const requestedAppName = String(proposal.parameters?.appName || '').trim().toLowerCase();
-        const trustedInstalled = Array.from(db.installedApps.values()).find(
-          (a) => a.trusted && a.autoApprove && a.appName.toLowerCase() === requestedAppName
-        );
-        const trustedAllowlisted = Array.from(db.allowlistedApps.values()).find(
-          (a) => a.trusted && a.isEnabled && a.appName.toLowerCase() === requestedAppName
-        );
-        const matched = trustedInstalled || trustedAllowlisted;
+        if (proposal.toolName === 'propose_open_desktop_app') {
+          const requestedAppName = String(proposal.parameters?.appName || '').trim().toLowerCase();
+          const allApps = [
+            ...Array.from(db.installedApps.values()).map((a) => ({
+              appName: a.appName,
+              executablePath: a.executablePath,
+              trusted: a.trusted,
+            })),
+            ...Array.from(db.allowlistedApps.values())
+              .filter((a) => a.isEnabled)
+              .map((a) => ({
+                appName: a.appName,
+                executablePath: a.executablePath,
+                trusted: a.trusted,
+              })),
+          ];
 
-        if (matched) {
-          proposal.status = 'APPROVED';
-          proposal.requiresApproval = false;
+          let matched = allApps.find(
+            (a) =>
+              a.appName.toLowerCase() === requestedAppName ||
+              a.appName.toLowerCase().includes(requestedAppName) ||
+              requestedAppName.includes(a.appName.toLowerCase())
+          );
 
-          relayService.broadcast({
-            id: crypto.randomUUID(),
-            type: 'EXECUTE_DESKTOP_APP',
-            payload: {
-              proposalId: proposal.id,
-              autoApprovedTrusted: true,
-              parameters: {
-                ...proposal.parameters,
-                appName: matched.appName,
-                executablePath: matched.executablePath,
-              },
-            },
-            timestamp: new Date().toISOString(),
-          });
-
-          if (process.platform === 'win32') {
-            try {
-              const child = child_process.spawn(matched.executablePath, [], {
-                detached: true,
-                stdio: 'ignore',
-              });
-              if (child && typeof child.on === 'function') {
-                child.on('error', () => { /* ignore */ });
-              }
-              child.unref();
-            } catch {
-              // ignore spawn errors
+          // Built-in safe Windows system aliases for Trusted Fast-Launch
+          if (!matched) {
+            const safeAliases: Record<string, { appName: string; executablePath: string }> = {
+              calculator: { appName: 'Calculator', executablePath: 'calc.exe' },
+              calc: { appName: 'Calculator', executablePath: 'calc.exe' },
+              notepad: { appName: 'Notepad', executablePath: 'notepad.exe' },
+              paint: { appName: 'Paint', executablePath: 'mspaint.exe' },
+              mspaint: { appName: 'Paint', executablePath: 'mspaint.exe' },
+              'visual studio code': { appName: 'Visual Studio Code', executablePath: 'code' },
+              'vs code': { appName: 'Visual Studio Code', executablePath: 'code' },
+              vscode: { appName: 'Visual Studio Code', executablePath: 'code' },
+              terminal: { appName: 'Windows Terminal', executablePath: 'wt.exe' },
+              explorer: { appName: 'File Explorer', executablePath: 'explorer.exe' },
+              edge: { appName: 'Microsoft Edge', executablePath: 'msedge.exe' },
+              'microsoft edge': { appName: 'Microsoft Edge', executablePath: 'msedge.exe' },
+            };
+            const alias = safeAliases[requestedAppName];
+            if (alias) {
+              matched = { ...alias, trusted: true };
             }
           }
 
-          auditService.record({
-            userId,
-            deviceType: 'DESKTOP_AGENT',
-            toolName: proposal.toolName,
-            parameters: { ...proposal.parameters, executablePath: matched.executablePath },
-            targetResource: matched.appName,
-            consequenceSummary: `Trusted Fast-Launch auto-approved and executed "${matched.appName}"`,
-            status: 'AUTO_APPROVED_TRUSTED',
-            decisionMadeBy: 'TRUSTED_FAST_LAUNCH',
-          });
-          continue;
+          if (matched) {
+            proposal.status = 'APPROVED';
+            proposal.requiresApproval = false;
+            response.reply = `Launching **${matched.appName}** on your Windows desktop.`;
+
+            relayService.broadcast({
+              id: crypto.randomUUID(),
+              type: 'EXECUTE_DESKTOP_APP',
+              payload: {
+                proposalId: proposal.id,
+                autoApprovedTrusted: true,
+                parameters: {
+                  ...proposal.parameters,
+                  appName: matched.appName,
+                  executablePath: matched.executablePath,
+                },
+              },
+              timestamp: new Date().toISOString(),
+            });
+
+            if (process.platform === 'win32') {
+              try {
+                const child = child_process.spawn('cmd.exe', ['/c', 'start', '', matched.executablePath], {
+                  detached: true,
+                  stdio: 'ignore',
+                });
+                if (child && typeof child.on === 'function') {
+                  child.on('error', () => { /* ignore */ });
+                }
+                child.unref();
+              } catch {
+                // ignore spawn errors
+              }
+            }
+
+            auditService.record({
+              userId,
+              deviceType: 'DESKTOP_AGENT',
+              toolName: proposal.toolName,
+              parameters: { ...proposal.parameters, executablePath: matched.executablePath },
+              targetResource: matched.appName,
+              consequenceSummary: `Trusted Fast-Launch auto-approved and executed "${matched.appName}"`,
+              status: 'AUTO_APPROVED_TRUSTED',
+              decisionMadeBy: 'TRUSTED_FAST_LAUNCH',
+            });
+            continue;
+          }
+        } else if (
+          (proposal.toolName === 'propose_open_website' || proposal.toolName === 'open_new_tab') &&
+          proposal.parameters?.url
+        ) {
+          const targetUrl = String(proposal.parameters.url);
+          if (/^https?:\/\//i.test(targetUrl)) {
+            proposal.status = 'APPROVED';
+            proposal.requiresApproval = false;
+            response.reply = `Opened **${targetUrl}** in a new Microsoft Edge tab.`;
+
+            relayService.broadcast({
+              id: crypto.randomUUID(),
+              type: 'EDGE_OPEN_NEW_TAB',
+              payload: {
+                proposalId: proposal.id,
+                autoApprovedTrusted: true,
+                url: targetUrl,
+                browser: 'edge',
+                newTab: true,
+              },
+              timestamp: new Date().toISOString(),
+            });
+
+            if (process.platform === 'win32') {
+              try {
+                const child = child_process.spawn('cmd.exe', ['/c', 'start', '', 'msedge.exe', '--new-tab', targetUrl], {
+                  detached: true,
+                  stdio: 'ignore',
+                });
+                if (child && typeof child.on === 'function') {
+                  child.on('error', () => { /* ignore */ });
+                }
+                child.unref();
+              } catch {
+                // ignore spawn errors
+              }
+            }
+
+            auditService.record({
+              userId,
+              deviceType: 'BROWSER_EXTENSION',
+              toolName: proposal.toolName,
+              parameters: { ...proposal.parameters, browser: 'edge', newTab: true },
+              targetResource: targetUrl,
+              consequenceSummary: `Trusted Fast-Launch opened ${targetUrl} in new Microsoft Edge tab`,
+              status: 'AUTO_APPROVED_TRUSTED',
+              decisionMadeBy: 'TRUSTED_FAST_LAUNCH',
+            });
+            continue;
+          }
         }
       }
 

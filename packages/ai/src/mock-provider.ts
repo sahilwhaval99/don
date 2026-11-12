@@ -442,6 +442,7 @@ export class MockAIProvider implements AIProvider {
   private extractWhatsAppContact(prompt: string): string {
     const cleaned = prompt
       .replace(/\b(please|can you|could you|initiate|place|make|start|a|on|via|whatsapp|video|voice|call)\b/gi, ' ')
+      .replace(/[.,!?]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
     return cleaned || 'Contact';
@@ -453,6 +454,7 @@ export class MockAIProvider implements AIProvider {
         /\b(please|can you|could you|search|find|download|open|get|fetch|for|the|a|an|on|in|from|and|whatsapp|document|file)\b/gi,
         ' '
       )
+      .replace(/[.,!?]+/g, ' ')
       .replace(/\s+/g, ' ')
       .trim();
     return cleaned || 'document';
