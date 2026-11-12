@@ -8,6 +8,8 @@ import {
   Document,
   Device,
   AllowlistedApp,
+  InstalledAppEntry,
+  TrustedFastLaunchPolicy,
   AutomationRecipe,
   ToolCallProposal,
   AuditLogEntry,
@@ -26,6 +28,14 @@ class DatabaseRepository {
   documents: Map<string, Document> = new Map();
   devices: Map<string, Device> = new Map();
   allowlistedApps: Map<string, AllowlistedApp> = new Map();
+  installedApps: Map<string, InstalledAppEntry> = new Map();
+  trustedPolicy: TrustedFastLaunchPolicy = {
+    enabled: false,
+    mode: 'REQUIRE_APPROVAL',
+    trustedAppIds: [],
+    trustedAppNames: [],
+    enforceRegistryValidation: true,
+  };
   automations: Map<string, AutomationRecipe> = new Map();
   approvals: Map<string, ToolCallProposal & { userId: string }> = new Map();
   auditLogs: AuditLogEntry[] = [];
@@ -62,6 +72,7 @@ class DatabaseRepository {
       icon: 'calculator',
       permissionLevel: 'LAUNCH_ONLY',
       isEnabled: true,
+      trusted: false,
       createdAt: new Date().toISOString(),
     };
     const notepadApp: AllowlistedApp = {
@@ -72,10 +83,27 @@ class DatabaseRepository {
       icon: 'file-text',
       permissionLevel: 'LAUNCH_ONLY',
       isEnabled: true,
+      trusted: false,
       createdAt: new Date().toISOString(),
     };
     this.allowlistedApps.set(calcApp.id, calcApp);
     this.allowlistedApps.set(notepadApp.id, notepadApp);
+
+    const defaultInstalledApps: InstalledAppEntry[] = [
+      { id: 'app-calc', appName: 'Calculator', executablePath: 'C:\\Windows\\System32\\calc.exe', launchArgs: [], source: 'SYSTEM_UTILITY', trusted: false, autoApprove: false, icon: 'calculator' },
+      { id: 'app-notepad', appName: 'Notepad', executablePath: 'C:\\Windows\\System32\\notepad.exe', launchArgs: [], source: 'SYSTEM_UTILITY', trusted: false, autoApprove: false, icon: 'file-text' },
+      { id: 'app-mspaint', appName: 'Paint', executablePath: 'C:\\Windows\\System32\\mspaint.exe', launchArgs: [], source: 'SYSTEM_UTILITY', trusted: false, autoApprove: false, icon: 'palette' },
+      { id: 'app-wt', appName: 'Windows Terminal', executablePath: 'C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps\\wt.exe', launchArgs: [], source: 'APPX', trusted: false, autoApprove: false, icon: 'terminal' },
+      { id: 'app-explorer', appName: 'File Explorer', executablePath: 'C:\\Windows\\explorer.exe', launchArgs: [], source: 'SYSTEM_UTILITY', trusted: false, autoApprove: false, icon: 'folder' },
+      { id: 'app-msedge', appName: 'Microsoft Edge', executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', launchArgs: [], source: 'SYSTEM_UTILITY', trusted: false, autoApprove: false, icon: 'globe' },
+      { id: 'app-code', appName: 'Visual Studio Code', executablePath: 'C:\\Users\\User\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe', launchArgs: [], source: 'START_MENU', trusted: false, autoApprove: false, icon: 'code' },
+      { id: 'app-spotify', appName: 'Spotify', executablePath: 'C:\\Users\\User\\AppData\\Roaming\\Spotify\\Spotify.exe', launchArgs: [], source: 'START_MENU', trusted: false, autoApprove: false, icon: 'music' },
+      { id: 'app-discord', appName: 'Discord', executablePath: 'C:\\Users\\User\\AppData\\Local\\Discord\\Update.exe', launchArgs: [], source: 'START_MENU', trusted: false, autoApprove: false, icon: 'message-circle' },
+      { id: 'app-whatsapp', appName: 'WhatsApp', executablePath: 'C:\\Users\\User\\AppData\\Local\\Microsoft\\WindowsApps\\WhatsApp.exe', launchArgs: [], source: 'APPX', trusted: false, autoApprove: false, icon: 'message-square' },
+    ];
+    for (const entry of defaultInstalledApps) {
+      this.installedApps.set(entry.id, entry);
+    }
 
     // Default Routine: Morning Briefing
     const morningRoutine: Routine = {
@@ -144,6 +172,14 @@ class DatabaseRepository {
     this.documents.clear();
     this.devices.clear();
     this.allowlistedApps.clear();
+    this.installedApps.clear();
+    this.trustedPolicy = {
+      enabled: false,
+      mode: 'REQUIRE_APPROVAL',
+      trustedAppIds: [],
+      trustedAppNames: [],
+      enforceRegistryValidation: true,
+    };
     this.automations.clear();
     this.approvals.clear();
     this.auditLogs = [];

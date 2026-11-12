@@ -153,6 +153,97 @@ export function evaluateConsequence(
         },
       };
 
+    case 'open_new_tab':
+      return {
+        requiresApproval: true,
+        consequence: {
+          target: `Microsoft Edge Tab: ${parameters.url || 'New Tab'}`,
+          description: `Open a new tab in Microsoft Edge navigating to ${parameters.url || 'target URL'}.`,
+          isReversible: true,
+          riskLevel: 'LOW',
+          requiresLocalAgent: false,
+          requiresAndroidCompanion: false,
+        },
+      };
+
+    case 'switch_tab':
+      return {
+        requiresApproval: false,
+        consequence: {
+          target: `Microsoft Edge Tab Switch: ${parameters.titleOrUrlMatch || parameters.tabId || 'tab'}`,
+          description: 'Focus an already-open tab in Microsoft Edge.',
+          isReversible: true,
+          riskLevel: 'LOW',
+          requiresLocalAgent: false,
+          requiresAndroidCompanion: false,
+        },
+      };
+
+    case 'list_open_tabs':
+      return {
+        requiresApproval: false,
+        consequence: {
+          target: 'Microsoft Edge Open Tabs',
+          description: 'List currently open tabs in Microsoft Edge.',
+          isReversible: true,
+          riskLevel: 'LOW',
+          requiresLocalAgent: false,
+          requiresAndroidCompanion: false,
+        },
+      };
+
+    case 'read_active_page_summary':
+      return {
+        requiresApproval: false,
+        consequence: {
+          target: 'Microsoft Edge Active Page',
+          description: 'Read a text summary of the active Microsoft Edge tab (subject to site permission).',
+          isReversible: true,
+          riskLevel: 'LOW',
+          requiresLocalAgent: false,
+          requiresAndroidCompanion: false,
+        },
+      };
+
+    case 'media_control':
+      return {
+        requiresApproval: true,
+        consequence: {
+          target: `Microsoft Edge Media: ${parameters.command || 'TOGGLE'}`,
+          description: `Send media playback command (${parameters.command || 'TOGGLE'}) to active Microsoft Edge media tab.`,
+          isReversible: true,
+          riskLevel: 'LOW',
+          requiresLocalAgent: false,
+          requiresAndroidCompanion: false,
+        },
+      };
+
+    case 'whatsapp_search_download_open':
+      return {
+        requiresApproval: true,
+        consequence: {
+          target: `WhatsApp Document: "${parameters.query || 'document'}"`,
+          description: `Search WhatsApp/Downloads for "${parameters.query || 'document'}", download if needed, and open it.`,
+          isReversible: false,
+          riskLevel: 'MEDIUM',
+          requiresLocalAgent: true,
+          requiresAndroidCompanion: false,
+        },
+      };
+
+    case 'whatsapp_call':
+      return {
+        requiresApproval: true,
+        consequence: {
+          target: `WhatsApp ${parameters.callType || 'VOICE'} Call: ${parameters.contactName || 'Contact'}`,
+          description: `Initiate a WhatsApp ${String(parameters.callType || 'VOICE').toLowerCase()} call to ${parameters.contactName || 'contact'} via WhatsApp Desktop.`,
+          isReversible: false,
+          riskLevel: 'HIGH',
+          requiresLocalAgent: true,
+          requiresAndroidCompanion: false,
+        },
+      };
+
     case 'propose_phone_dial':
       return {
         requiresApproval: true,

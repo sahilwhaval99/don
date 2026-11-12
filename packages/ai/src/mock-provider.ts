@@ -4,20 +4,69 @@ import {
   WebSearchResultItem,
   DocumentSnippetCitation,
 } from '@don/shared';
-import { AIProvider, AIResponse, ChatMessage, AIContext } from './types.js';
+import { AIProvider, AIResponse, ChatMessage, AIContext, SearchProvider } from './types.js';
 import { evaluateConsequence } from './consequences.js';
-import { UnifiedSearchProvider } from './search-provider.js';
+import { MultiSourceKnowledgeEngine } from './multi-source-knowledge.js';
 import { DocumentRAGAnalyzer } from './document-rag.js';
+import { enforceShortAnswerFirst, wantsDetailedResponse } from './jarvis-directive.js';
+
+const KNOWN_WEBSITE_MAP: Record<string, string> = {
+  youtube: 'https://www.youtube.com',
+  github: 'https://github.com',
+  google: 'https://www.google.com',
+  gmail: 'https://mail.google.com',
+  reddit: 'https://www.reddit.com',
+  wikipedia: 'https://en.wikipedia.org',
+  stackoverflow: 'https://stackoverflow.com',
+  'stack overflow': 'https://stackoverflow.com',
+  linkedin: 'https://www.linkedin.com',
+  netflix: 'https://www.netflix.com',
+  chatgpt: 'https://chatgpt.com',
+  notion: 'https://www.notion.so',
+  figma: 'https://www.figma.com',
+  amazon: 'https://www.amazon.com',
+  twitter: 'https://x.com',
+  x: 'https://x.com',
+  twitch: 'https://www.twitch.tv',
+  instagram: 'https://www.instagram.com',
+  facebook: 'https://www.facebook.com',
+  'whatsapp web': 'https://web.whatsapp.com',
+};
+
+const KNOWN_APP_ALIASES: Array<{ keywords: string[]; appName: string }> = [
+  { keywords: ['calculator', 'calc'], appName: 'Calculator' },
+  { keywords: ['notepad'], appName: 'Notepad' },
+  { keywords: ['terminal', 'powershell', 'cmd', 'wt'], appName: 'Terminal' },
+  { keywords: ['mspaint', 'paint'], appName: 'Paint' },
+  { keywords: ['vscode', 'vs code', 'visual studio code'], appName: 'Visual Studio Code' },
+  { keywords: ['spotify'], appName: 'Spotify' },
+  { keywords: ['discord'], appName: 'Discord' },
+  { keywords: ['whatsapp'], appName: 'WhatsApp' },
+  { keywords: ['msedge', 'microsoft edge', 'edge'], appName: 'Microsoft Edge' },
+  { keywords: ['explorer', 'file explorer'], appName: 'File Explorer' },
+];
+
+export interface MockAIProviderOptions {
+  knowledgeEngine?: MultiSourceKnowledgeEngine;
+  searchProvider?: SearchProvider;
+}
 
 export class MockAIProvider implements AIProvider {
   name = 'IntelligentAssistantProvider';
-  private searchProvider = new UnifiedSearchProvider();
+  private knowledgeEngine: MultiSourceKnowledgeEngine;
+  private customSearchProvider?: SearchProvider;
   private docAnalyzer = new DocumentRAGAnalyzer();
+
+  constructor(options?: MockAIProviderOptions) {
+    this.knowledgeEngine = options?.knowledgeEngine ?? new MultiSourceKnowledgeEngine();
+    this.customSearchProvider = options?.searchProvider;
+  }
 
   async generateResponse(messages: ChatMessage[], context?: AIContext): Promise<AIResponse> {
     const lastUserMessage = [...messages].reverse().find((m) => m.role === 'user');
     const userPrompt = (lastUserMessage?.content || '').trim();
     const lowerPrompt = userPrompt.toLowerCase();
+    const isDetailed = wantsDetailedResponse(userPrompt);
 
     const toolProposals: ToolCallProposal[] = [];
     let reply = '';
@@ -41,10 +90,12 @@ export class MockAIProvider implements AIProvider {
       }
     }
 
+    const websiteUrl = this.extractWebsiteUrl(userPrompt);
+
     // 2. Greetings
     if (/^(hi|hello|hey|good\s*(morning|afternoon|evening)|greetings)\b/i.test(lowerPrompt)) {
       const ownerName = context?.userName || 'Commander';
-      reply = `Good day, ${ownerName}. DON is ready and synchronized across your Windows desktop agent, paired companion relay, and Google Search integrations. How may I assist your operations today?`;
+      reply = `Good day, ${ownerName}. DON is ready and synchronized across your desktop and companion systems. How may I assist?`;
     }
     // 3. Capabilities & Help
     else if (
@@ -54,28 +105,107 @@ export class MockAIProvider implements AIProvider {
       lowerPrompt === 'help' ||
       lowerPrompt.includes('who are you')
     ) {
-      reply = `I am **DON (Digital Operations Navigator)**: a secure, permission-governed, multi-device AI assistant.\n\n### Core Capabilities:\n- **Google Web Search**: Real-time live web searches with authentic publisher citations and timestamps.\n- **Desktop App Control**: Launch allowlisted Windows applications (Calculator, Notepad, Terminal) after your explicit approval.\n- **Android Companion**: Push notifications, open phone dialers, and handle secure call confirmations.\n- **Connected Documents**: Upload PDFs, Markdown, and notes to query via semantic search.\n- **Operational Routines**: Run Morning Briefings, Focus Mode timers, and work sessions.\n- **Emergency Kill Switch**: Instantly halt all active automations with a single click.\n\nTo begin, ask me any question, propose an application launch, or search for any live topic.`;
+      if (isDetailed) {
+        reply = `I am **DON (Digital Operations Navigator)**: a secure, permission-governed, multi-device AI assistant.\n\n### Core Capabilities:\n- **Multi-Source Knowledge**: Parallel live queries across Wikipedia, DuckDuckGo, arXiv, StackExchange, GitHub, and Google News RSS.\n- **Microsoft Edge & Desktop Control**: Open websites in Edge tabs, manage Edge media/tabs, and launch Windows apps.\n- **WhatsApp Integration**: Search/download/open WhatsApp documents and initiate WhatsApp calls.\n- **Android Companion & Connected Docs**: Dialer/call proposals and semantic document Q&A.\n- **Emergency Kill Switch**: Instantly halt all active automations.`;
+      } else {
+        reply = `I am DON, your permission-governed multi-device assistant. I can answer live multi-source queries, control Microsoft Edge tabs and Windows apps, handle WhatsApp documents and calls, and manage tasks. What would you like to run?`;
+      }
     }
-    // 4. Desktop App Launch Intent
+    // 4. WhatsApp Call Intent (must precede generic phone call)
     else if (
-      lowerPrompt.includes('open app') ||
-      lowerPrompt.includes('launch') ||
-      lowerPrompt.includes('calculator') ||
-      lowerPrompt.includes('notepad') ||
-      lowerPrompt.includes('terminal') ||
-      lowerPrompt.includes('calc')
+      lowerPrompt.includes('whatsapp') &&
+      (/\bcall\b/i.test(lowerPrompt) || lowerPrompt.includes('video call') || lowerPrompt.includes('voice call'))
     ) {
-      let appName = 'Calculator';
-      if (lowerPrompt.includes('notepad')) appName = 'Notepad';
-      else if (lowerPrompt.includes('terminal') || lowerPrompt.includes('powershell') || lowerPrompt.includes('cmd')) appName = 'Terminal';
-      else if (lowerPrompt.includes('paint')) appName = 'Paint';
-
-      const params = { appName, reason: `User requested to open ${appName}` };
-      const { requiresApproval, consequence } = evaluateConsequence(
-        'propose_open_desktop_app',
-        params
-      );
-
+      const callType = lowerPrompt.includes('video') ? 'VIDEO' : 'VOICE';
+      const contactName = this.extractWhatsAppContact(userPrompt);
+      const params = {
+        contactName,
+        callType,
+        reason: `Initiate WhatsApp ${callType.toLowerCase()} call to ${contactName}`,
+      };
+      const { requiresApproval, consequence } = evaluateConsequence('whatsapp_call', params);
+      toolProposals.push({
+        id: crypto.randomUUID(),
+        toolName: 'whatsapp_call',
+        parameters: params,
+        consequence,
+        requiresApproval,
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      });
+      reply = `Prepared a WhatsApp ${callType.toLowerCase()} call proposal for **${contactName}**. Approve to place the call via WhatsApp Desktop.`;
+    }
+    // 5. WhatsApp Document Search / Download / Open Intent
+    else if (
+      lowerPrompt.includes('whatsapp') &&
+      /\b(search|find|download|open|get|fetch|doc|document|file|pdf|syllabus|notes|invoice)\b/i.test(lowerPrompt)
+    ) {
+      const query = this.extractWhatsAppDocQuery(userPrompt);
+      const params = {
+        query,
+        openAfterDownload: true,
+        openInEdge: true,
+        reason: `Search, download, and open "${query}" from WhatsApp or local Downloads`,
+      };
+      const { requiresApproval, consequence } = evaluateConsequence('whatsapp_search_download_open', params);
+      toolProposals.push({
+        id: crypto.randomUUID(),
+        toolName: 'whatsapp_search_download_open',
+        parameters: params,
+        consequence,
+        requiresApproval,
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      });
+      reply = `Prepared a WhatsApp document search and open proposal for **"${query}"**. Approve to locate, download, and open the matching file.`;
+    }
+    // 6. Edge Browser Actions (tabs, page summary, media control)
+    else if (this.detectEdgeBrowserAction(lowerPrompt)) {
+      const action = this.detectEdgeBrowserAction(lowerPrompt)!;
+      const { requiresApproval, consequence } = evaluateConsequence(action.toolName, action.params);
+      toolProposals.push({
+        id: crypto.randomUUID(),
+        toolName: action.toolName,
+        parameters: action.params,
+        consequence,
+        requiresApproval,
+        status: requiresApproval ? 'PENDING' : 'EXECUTED',
+        createdAt: new Date().toISOString(),
+      });
+      reply = action.reply;
+    }
+    // 7. Open Website in Microsoft Edge Intent
+    else if (
+      websiteUrl &&
+      /\b(open|go to|visit|browse|navigate|launch)\b/i.test(lowerPrompt)
+    ) {
+      const params = {
+        url: websiteUrl,
+        browser: 'msedge',
+        reason: `Open ${websiteUrl} in a new Microsoft Edge tab`,
+      };
+      const { requiresApproval, consequence } = evaluateConsequence('propose_open_website', params);
+      toolProposals.push({
+        id: crypto.randomUUID(),
+        toolName: 'propose_open_website',
+        parameters: params,
+        consequence,
+        requiresApproval,
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
+      });
+      reply = `Prepared a Microsoft Edge new-tab proposal for **${websiteUrl}**. Approve to open it in Edge.`;
+    }
+    // 8. Desktop App Launch Intent (any Windows app)
+    else if (this.isDesktopAppLaunchIntent(lowerPrompt)) {
+      const matched = this.resolveDesktopApp(userPrompt, context);
+      const params: Record<string, unknown> = {
+        ...(matched.appId ? { appId: matched.appId } : {}),
+        appName: matched.appName,
+        ...(matched.executablePath ? { executablePath: matched.executablePath } : {}),
+        reason: `User requested to open ${matched.appName}`,
+      };
+      const { requiresApproval, consequence } = evaluateConsequence('propose_open_desktop_app', params);
       toolProposals.push({
         id: crypto.randomUUID(),
         toolName: 'propose_open_desktop_app',
@@ -85,10 +215,9 @@ export class MockAIProvider implements AIProvider {
         status: 'PENDING',
         createdAt: new Date().toISOString(),
       });
-
-      reply = `I have submitted an approval request to launch **${appName}** on your Windows desktop.\n\nBecause DON enforces strict permission boundaries, the executable will only spawn after you click **Approve & Execute**.`;
+      reply = `Submitted an approval request to launch **${matched.appName}** on your Windows desktop. Click **Approve & Execute** to run it.`;
     }
-    // 5. Phone Call or Dialer Intent
+    // 9. Phone Call or Dialer Intent
     else if (
       lowerPrompt.includes('call') ||
       lowerPrompt.includes('dial') ||
@@ -99,9 +228,7 @@ export class MockAIProvider implements AIProvider {
       const isDirectCall =
         lowerPrompt.includes('direct call') || lowerPrompt.includes('place a call');
 
-      const toolName: AllowedToolName = isDirectCall
-        ? 'propose_phone_call'
-        : 'propose_phone_dial';
+      const toolName: AllowedToolName = isDirectCall ? 'propose_phone_call' : 'propose_phone_dial';
       const params = isDirectCall
         ? {
             phoneNumber,
@@ -122,10 +249,10 @@ export class MockAIProvider implements AIProvider {
       });
 
       reply = isDirectCall
-        ? `I have prepared a proposal to initiate an outgoing phone call to **${phoneNumber}**.\n\n> ⚠️ **Permission Required**: Direct calling utilizes Android CALL_PHONE permission and requires explicit approval on your phone.`
-        : `I have prepared a proposal to open the phone dialer with **${phoneNumber}** on your paired Android companion. Click below to approve or deny.`;
+        ? `Prepared a direct call proposal to **${phoneNumber}**. Explicit phone-side approval is required before placing the call.`
+        : `Prepared a dialer proposal for **${phoneNumber}** on your paired Android companion. Approve to populate the dialer.`;
     }
-    // 6. Screen Capture / Screen Analysis Intent
+    // 10. Screen Capture / Screen Analysis Intent
     else if (
       lowerPrompt.includes('screen') ||
       lowerPrompt.includes('capture') ||
@@ -135,10 +262,7 @@ export class MockAIProvider implements AIProvider {
         windowTitleOrTarget: 'Active Workspace Window',
         purpose: 'Analyze display contents for user troubleshooting',
       };
-      const { requiresApproval, consequence } = evaluateConsequence(
-        'request_screen_capture',
-        params
-      );
+      const { requiresApproval, consequence } = evaluateConsequence('request_screen_capture', params);
 
       toolProposals.push({
         id: crypto.randomUUID(),
@@ -150,9 +274,9 @@ export class MockAIProvider implements AIProvider {
         createdAt: new Date().toISOString(),
       });
 
-      reply = `I have requested permission to capture a transient screenshot of your active window.\n\n> 🔒 **Privacy Guarantee**: Screen captures are ephemeral, inspected in volatile memory, and permanently purged immediately after analysis.`;
+      reply = `Requested permission to capture a transient screenshot of your active window. Captures are inspected in memory and purged immediately after analysis.`;
     }
-    // 7. Connected Document Query Intent
+    // 11. Connected Document Query Intent
     else if (
       lowerPrompt.includes('document') ||
       lowerPrompt.includes('summary of pdf') ||
@@ -178,10 +302,10 @@ export class MockAIProvider implements AIProvider {
         citations.push(...docResult.citations);
         reply = docResult.answer;
       } else {
-        reply = `You do not have any connected documents uploaded in this session. You can upload PDFs, Word documents, or Markdown files in the **Knowledge Base** tab to enable semantic citations.`;
+        reply = `No connected documents are uploaded in this session. Upload PDFs, Word files, or Markdown in the Knowledge Base tab to enable document Q&A.`;
       }
     }
-    // 8. Task / Project / Reminder Intent
+    // 12. Task / Project / Reminder Intent
     else if (
       lowerPrompt.startsWith('task') ||
       lowerPrompt.startsWith('add task') ||
@@ -207,93 +331,226 @@ export class MockAIProvider implements AIProvider {
         createdAt: new Date().toISOString(),
       });
 
-      reply = `Created task **"${title}"** with priority **${params.priority}**.\n\nYou can view and organize this task on your **Tasks & Projects** Kanban board.`;
+      reply = `Created task **"${title}"** with **${params.priority}** priority. It is now on your Tasks & Projects board.`;
     }
-    // 9. Math Calculation & Evaluation
+    // 13. Math Calculation & Evaluation
     else if (this.isMathExpression(userPrompt)) {
       reply = this.evaluateMath(userPrompt);
     }
-    // 10. Code Generation Request
+    // 14. Code Generation Request
     else if (this.isCodeRequest(userPrompt)) {
       reply = this.generateCodeSnippet(userPrompt);
     }
-    // 11. Explicit Google / Web Search Queries
+    // 15. Multi-Source Knowledge & Web Search Queries
     else if (
       lowerPrompt.includes('search') ||
       lowerPrompt.includes('google') ||
       lowerPrompt.includes('look up') ||
       lowerPrompt.includes('news') ||
       lowerPrompt.includes('latest') ||
-      lowerPrompt.includes('weather')
+      lowerPrompt.includes('weather') ||
+      userPrompt.endsWith('?') ||
+      /^(who|what|when|where|why|how|explain|define|tell)\b/i.test(lowerPrompt)
     ) {
-      const cleanQuery = userPrompt
-        .replace(/^(search for|search google for|google|search|look up|can you search|tell me about|what is the latest on)\s+/i, '')
-        .trim() || userPrompt;
+      const cleanQuery =
+        userPrompt
+          .replace(
+            /^(search for|search google for|google|search|look up|can you search|tell me about|what is the latest on)\s+/i,
+            ''
+          )
+          .trim() || userPrompt;
 
       try {
-        const liveResults = await this.searchProvider.search(cleanQuery, 4, true);
-        citations.push(...liveResults);
+        const results = this.customSearchProvider
+          ? await this.customSearchProvider.search(cleanQuery, 5, true)
+          : await this.knowledgeEngine.search(cleanQuery, 5);
+        citations.push(...results);
 
-        const params = { query: cleanQuery };
-        const { requiresApproval, consequence } = evaluateConsequence('web_search', params);
-        toolProposals.push({
-          id: crypto.randomUUID(),
-          toolName: 'web_search',
-          parameters: params,
-          consequence,
-          requiresApproval,
-          status: 'EXECUTED',
-          createdAt: new Date().toISOString(),
-        });
-
-        if (liveResults.length > 0) {
-          const formattedSources = liveResults
-            .map((r, i) => `**${i + 1}. [${r.title}](${r.url})**\n${r.snippet}`)
-            .join('\n\n');
-
-          reply = `Here is the verified information I retrieved from live Google and web sources for **"${cleanQuery}"**:\n\n${formattedSources}\n\n*All sources cited with direct publisher links and verifiable publication timestamps.*`;
-        } else {
-          reply = `I queried live search sources for **"${cleanQuery}"**, but no relevant public records were found. You can try refining your search terms.`;
+        if (lowerPrompt.includes('search') || lowerPrompt.includes('google') || lowerPrompt.includes('look up')) {
+          const params = { query: cleanQuery };
+          const { requiresApproval, consequence } = evaluateConsequence('web_search', params);
+          toolProposals.push({
+            id: crypto.randomUUID(),
+            toolName: 'web_search',
+            parameters: params,
+            consequence,
+            requiresApproval,
+            status: 'EXECUTED',
+            createdAt: new Date().toISOString(),
+          });
         }
-      } catch (err: any) {
-        reply = `I encountered an issue executing live web search for "${cleanQuery}": ${err.message}. Please check your network connection.`;
-      }
-    }
-    // 12. General Knowledge, Informational & Q&A
-    else {
-      // Query search provider for questions ending in ? or informational queries
-      const isQuestion = userPrompt.endsWith('?') || /^(who|what|when|where|why|how|explain|define|tell)\b/i.test(lowerPrompt);
 
-      if (isQuestion) {
-        try {
-          const liveResults = await this.searchProvider.search(userPrompt, 3, true);
-          if (liveResults.length > 0) {
-            citations.push(...liveResults);
+        if (results.length > 0) {
+          if (isDetailed) {
+            const formattedSources = results
+              .map((r, i) => `**${i + 1}. [${r.title}](${r.url})**${r.sourceName ? ` (${r.sourceName})` : ''}\n${r.snippet}`)
+              .join('\n\n');
+            reply = `Here are the verified multi-source findings for **"${cleanQuery}"**:\n\n${formattedSources}`;
+          } else {
+            const top = results[0];
+            const sourceLabel = top.sourceName ? ` (${top.sourceName})` : '';
+            reply = `${top.snippet} [Source: ${top.title}${sourceLabel}].`;
           }
-        } catch {
-          // Ignore live search lookup errors in background
+        } else {
+          reply = `I queried Wikipedia, DuckDuckGo, arXiv, StackExchange, GitHub, and Google News for "${cleanQuery}", but no live records were returned.`;
         }
-      }
-
-      if (citations.length > 0) {
-        const topSources = citations.slice(0, 3);
-        const sourceSummaries = topSources
-          .map((c, i) => `**${i + 1}. [${'title' in c ? c.title : c.documentName}](${'url' in c ? c.url : '#'})**\n${c.snippet}`)
-          .join('\n\n');
-
-        reply = `Based on live verified sources, here is what you need to know about **"${userPrompt}"**:\n\n${sourceSummaries}\n\nWould you like me to dive deeper into any specific aspect or create a related action item?`;
-      } else {
-        // Conversational response with intelligence and personality
-        reply = this.generateConversationalResponse(userPrompt);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        reply = `Live knowledge lookup for "${cleanQuery}" failed: ${msg}.`;
       }
     }
+    // 16. Conversational Fallback
+    else {
+      reply = this.generateConversationalResponse(userPrompt);
+    }
+
+    const finalReply = enforceShortAnswerFirst(reply, userPrompt);
 
     return {
-      reply,
+      reply: finalReply,
       toolProposals,
       usedMemories,
       citations,
-      uncertaintyNotes: citations.length > 0 ? 'Live search citations attached from verified web sources.' : undefined,
+      uncertaintyNotes: citations.length > 0 ? 'Multi-source citations attached from verified live endpoints.' : undefined,
+    };
+  }
+
+  private extractWebsiteUrl(prompt: string): string | null {
+    const urlMatch = prompt.match(/https?:\/\/[^\s]+/i);
+    if (urlMatch) {
+      return urlMatch[0].replace(/[.,;!?]+$/, '');
+    }
+
+    const domainMatch = prompt.match(
+      /\b([a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|org|net|io|dev|ai|edu|gov|co|app|me|tv|in|uk)(?:\/[^\s]*)?)\b/i
+    );
+    if (domainMatch) {
+      return `https://${domainMatch[1].replace(/[.,;!?]+$/, '')}`;
+    }
+
+    const lower = prompt.toLowerCase();
+    for (const [siteKey, siteUrl] of Object.entries(KNOWN_WEBSITE_MAP)) {
+      const escaped = siteKey.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (new RegExp(`\\b${escaped}\\b`, 'i').test(lower)) {
+        return siteUrl;
+      }
+    }
+
+    return null;
+  }
+
+  private extractWhatsAppContact(prompt: string): string {
+    const cleaned = prompt
+      .replace(/\b(please|can you|could you|initiate|place|make|start|a|on|via|whatsapp|video|voice|call)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    return cleaned || 'Contact';
+  }
+
+  private extractWhatsAppDocQuery(prompt: string): string {
+    const cleaned = prompt
+      .replace(
+        /\b(please|can you|could you|search|find|download|open|get|fetch|for|the|a|an|on|in|from|and|whatsapp|document|file)\b/gi,
+        ' '
+      )
+      .replace(/\s+/g, ' ')
+      .trim();
+    return cleaned || 'document';
+  }
+
+  private detectEdgeBrowserAction(
+    lowerPrompt: string
+  ): { toolName: AllowedToolName; params: Record<string, unknown>; reply: string } | null {
+    if (/\b(list|show|get)\s+(open\s+)?tabs\b/i.test(lowerPrompt)) {
+      return {
+        toolName: 'list_open_tabs',
+        params: {},
+        reply: 'Requested the list of currently open Microsoft Edge tabs.',
+      };
+    }
+
+    if (/\bswitch\s+(?:to\s+)?tab\b/i.test(lowerPrompt)) {
+      const match = lowerPrompt.replace(/^.*\bswitch\s+(?:to\s+)?tab\s*(?:to\s+)?/i, '').trim();
+      return {
+        toolName: 'switch_tab',
+        params: { titleOrUrlMatch: match || 'active' },
+        reply: `Switching Microsoft Edge to the tab matching "${match || 'active'}".`,
+      };
+    }
+
+    if (/\b(read|summarize|summary)\s+(?:of\s+)?(?:the\s+)?active\s+(?:page|tab)\b/i.test(lowerPrompt)) {
+      return {
+        toolName: 'read_active_page_summary',
+        params: { maxChars: 4000 },
+        reply: 'Reading a summary of the active Microsoft Edge page.',
+      };
+    }
+
+    if (/\b(pause|play|resume|mute|unmute|next|previous)\s+(?:media|video|audio|music|youtube|tab)\b/i.test(lowerPrompt)) {
+      let command: 'PLAY' | 'PAUSE' | 'TOGGLE' | 'NEXT' | 'PREVIOUS' | 'MUTE' | 'UNMUTE' = 'TOGGLE';
+      if (lowerPrompt.includes('pause')) command = 'PAUSE';
+      else if (lowerPrompt.includes('play') || lowerPrompt.includes('resume')) command = 'PLAY';
+      else if (lowerPrompt.includes('unmute')) command = 'UNMUTE';
+      else if (lowerPrompt.includes('mute')) command = 'MUTE';
+      else if (lowerPrompt.includes('next')) command = 'NEXT';
+      else if (lowerPrompt.includes('previous')) command = 'PREVIOUS';
+
+      return {
+        toolName: 'media_control',
+        params: { command },
+        reply: `Prepared a Microsoft Edge media control command (**${command}**). Approve to execute on the active media tab.`,
+      };
+    }
+
+    return null;
+  }
+
+  private isDesktopAppLaunchIntent(lowerPrompt: string): boolean {
+    if (
+      lowerPrompt.includes('open app') ||
+      lowerPrompt.includes('launch') ||
+      lowerPrompt.includes('calculator') ||
+      lowerPrompt.includes('notepad') ||
+      lowerPrompt.includes('terminal') ||
+      lowerPrompt.includes('calc')
+    ) {
+      return true;
+    }
+
+    return /^(?:open|start)\s+[a-z0-9\s._-]+$/i.test(lowerPrompt.trim());
+  }
+
+  private resolveDesktopApp(
+    prompt: string,
+    context?: AIContext
+  ): { appId?: string; appName: string; executablePath?: string } {
+    const lower = prompt.toLowerCase();
+
+    if (context?.allowlistedApps && context.allowlistedApps.length > 0) {
+      for (const app of context.allowlistedApps) {
+        if (lower.includes(app.appName.toLowerCase())) {
+          return {
+            appId: app.id,
+            appName: app.appName,
+            executablePath: app.executablePath,
+          };
+        }
+      }
+    }
+
+    for (const alias of KNOWN_APP_ALIASES) {
+      if (alias.keywords.some((kw) => new RegExp(`\\b${kw}\\b`, 'i').test(lower))) {
+        return { appName: alias.appName };
+      }
+    }
+
+    const extracted = prompt
+      .replace(/^(?:please\s+)?(?:open|launch|start)\s+(?:app\s+)?/i, '')
+      .replace(/\s+app$/i, '')
+      .trim();
+
+    return {
+      appName: extracted ? extracted.charAt(0).toUpperCase() + extracted.slice(1) : 'Calculator',
     };
   }
 
@@ -337,24 +594,21 @@ export class MockAIProvider implements AIProvider {
   private evaluateMath(prompt: string): string {
     try {
       const lower = prompt.toLowerCase();
-      // Handle percentage: X% of Y
       const pctMatch = lower.match(/(\d+(?:\.\d+)?)\s*%\s+of\s+(\d+(?:\.\d+)?)/);
       if (pctMatch) {
         const pct = parseFloat(pctMatch[1]);
         const total = parseFloat(pctMatch[2]);
         const result = (pct / 100) * total;
-        return `**Calculation:**\n\n${pct}% of ${total} = **${result}**`;
+        return `${pct}% of ${total} equals **${result}**.`;
       }
 
-      // Handle sqrt(X)
       const sqrtMatch = lower.match(/sqrt\((\d+(?:\.\d+)?)\)/);
       if (sqrtMatch) {
         const val = parseFloat(sqrtMatch[1]);
         const result = Math.sqrt(val);
-        return `**Calculation:**\n\n√${val} = **${result}**`;
+        return `√${val} equals **${result}**.`;
       }
 
-      // Handle standard arithmetic
       const expr = prompt
         .replace(/^(what is|calculate|solve|evaluate)\s*/i, '')
         .replace(/times|multiplied by/gi, '*')
@@ -365,27 +619,25 @@ export class MockAIProvider implements AIProvider {
         .trim();
 
       if (expr) {
-        // Safe evaluation
         const sanitized = expr.replace(/[^0-9+\-*/().]/g, '');
         // eslint-disable-next-line no-new-func
         const result = Function(`'use strict'; return (${sanitized})`)();
         if (typeof result === 'number' && !isNaN(result)) {
-          return `**Calculation:**\n\n\`${expr}\` = **${result}**`;
+          return `\`${expr}\` equals **${result}**.`;
         }
       }
     } catch {
       // Evaluation syntax fallback
     }
 
-    return `I evaluated your mathematical expression: "${prompt}". Please ensure the format is clear (e.g., \`25 * 48\` or \`15% of 800\`).`;
+    return `Please provide a clear arithmetic expression such as \`25 * 48\` or \`15% of 800\`.`;
   }
 
   private generateCodeSnippet(prompt: string): string {
     const lower = prompt.toLowerCase();
 
-    // Specific match: Debounce
     if (lower.includes('debounce')) {
-      return `Here is a production-grade, fully typed TypeScript debounce implementation with cancellation and immediate execution options:\n\n\`\`\`typescript
+      return `Here is a typed TypeScript debounce implementation:\n\n\`\`\`typescript
 export interface DebouncedFunction<T extends (...args: any[]) => any> {
   (...args: Parameters<T>): void;
   cancel: () => void;
@@ -403,11 +655,7 @@ export function debounce<T extends (...args: any[]) => any>(
   const debounced = (...args: Parameters<T>) => {
     lastArgs = args;
     const callNow = options.leading && !timerId;
-
-    if (timerId) {
-      clearTimeout(timerId);
-    }
-
+    if (timerId) clearTimeout(timerId);
     timerId = setTimeout(() => {
       timerId = null;
       if (options.trailing && lastArgs) {
@@ -415,17 +663,12 @@ export function debounce<T extends (...args: any[]) => any>(
         lastArgs = null;
       }
     }, delayMs);
-
-    if (callNow) {
-      fn(...args);
-    }
+    if (callNow) fn(...args);
   };
 
   debounced.cancel = () => {
-    if (timerId) {
-      clearTimeout(timerId);
-      timerId = null;
-    }
+    if (timerId) clearTimeout(timerId);
+    timerId = null;
     lastArgs = null;
   };
 
@@ -440,19 +683,11 @@ export function debounce<T extends (...args: any[]) => any>(
 
   return debounced;
 }
-\`\`\`\n\n### Usage Example:\n\`\`\`typescript
-const saveInput = debounce((query: string) => {
-  console.log('Searching API for:', query);
-}, 400);
-
-saveInput('term 1');
-saveInput('term 2'); // Only 'term 2' executes after 400ms
 \`\`\``;
     }
 
-    // Specific match: Throttle
     if (lower.includes('throttle')) {
-      return `Here is a clean TypeScript throttle implementation ensuring a function executes at most once per interval:\n\n\`\`\`typescript
+      return `Here is a TypeScript throttle implementation:\n\n\`\`\`typescript
 export function throttle<T extends (...args: any[]) => any>(
   fn: T,
   limitMs: number = 300
@@ -479,15 +714,12 @@ export function throttle<T extends (...args: any[]) => any>(
 \`\`\``;
     }
 
-    // Specific match: Python
     if (lower.includes('python')) {
-      return `Here is a clean, production-ready Python implementation:\n\n\`\`\`python
+      return `Here is a Python HTTP helper:\n\n\`\`\`python
 import requests
-import json
 from typing import Dict, Any, Optional
 
 def fetch_data(url: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
-    """Fetch JSON data securely with timeout and exception logging."""
     try:
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
@@ -495,97 +727,36 @@ def fetch_data(url: str, timeout: int = 10) -> Optional[Dict[str, Any]]:
     except requests.RequestException as e:
         print(f"Error fetching data from {url}: {e}")
         return None
-
-if __name__ == "__main__":
-    data = fetch_data("https://api.github.com")
-    if data:
-        print(f"GitHub API status OK. Current user count / endpoints returned.")
-\`\`\`\n\nWould you like me to extend this or adapt it to a specific task?`;
-    }
-
-    // Specific match: React component
-    if (lower.includes('react') || lower.includes('component')) {
-      return `Here is a reusable, accessible React + TypeScript component:\n\n\`\`\`tsx
-import React, { useState } from 'react';
-
-interface MetricCardProps {
-  title: string;
-  value: string | number;
-  changePercent?: number;
-  icon?: React.ReactNode;
-}
-
-export const MetricCard: React.FC<MetricCardProps> = ({
-  title,
-  value,
-  changePercent,
-  icon,
-}) => {
-  return (
-    <div className="p-4 rounded-lg bg-slate-900 border border-slate-800 shadow-md">
-      <div className="flex items-center justify-between text-slate-400 text-xs">
-        <span>{title}</span>
-        {icon}
-      </div>
-      <div className="text-2xl font-bold text-slate-100 mt-2">{value}</div>
-      {changePercent !== undefined && (
-        <span className={\`text-xs \${changePercent >= 0 ? 'text-emerald-400' : 'text-rose-400'}\`}>
-          {changePercent >= 0 ? '+' : ''}{changePercent}% from last cycle
-        </span>
-      )}
-    </div>
-  );
-};
 \`\`\``;
     }
 
-    // General TypeScript Solution
-    return `Here is a TypeScript solution tailored to your request:\n\n\`\`\`typescript
-export async function executeOperation<T>(
-  endpoint: string,
-  options: RequestInit = {}
-): Promise<T> {
+    return `Here is a TypeScript async helper:\n\n\`\`\`typescript
+export async function executeOperation<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(endpoint, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
+    headers: { 'Content-Type': 'application/json', ...options.headers },
   });
-
-  if (!response.ok) {
-    throw new Error(\`Operation failed with status \${response.status}\`);
-  }
-
+  if (!response.ok) throw new Error(\`Operation failed with status \${response.status}\`);
   return response.json() as Promise<T>;
 }
-\`\`\`\n\nLet me know if you would like unit tests or additional error boundary checks!`;
+\`\`\``;
   }
 
   private generateConversationalResponse(prompt: string): string {
     const lower = prompt.toLowerCase();
 
-    if (/^(hi|hello|hey|good\s*(morning|afternoon|evening)|greetings)\b/i.test(lower)) {
-      return `Good day. DON is ready and synchronized. All operational subsystems are active: Google Search Grounding, Voice Engine (STT/TTS), Windows Desktop Control, Android Companion, and Task Management. How can I assist you today?`;
-    }
-
     if (lower.includes('joke')) {
-      return `Why do programmers prefer dark mode?\n\nBecause light attracts bugs! 🐛\n\nHow else may I assist you today?`;
+      return `Why do programmers prefer dark mode? Because light attracts bugs.`;
     }
 
     if (lower.includes('kill switch')) {
-      return `The **Stop All Automations Kill Switch** is a hardware-grade software safeguard. When engaged:\n1. All active and scheduled background automations are immediately terminated.\n2. In-flight tool executions are aborted.\n3. The status orb switches to ERROR (Red).\n4. All device relays ignore pending execution commands.\n\nYou can toggle it at any time in the top header banner.`;
+      return `The Stop All Automations Kill Switch immediately terminates active automations, aborts in-flight tools, and locks device relays until cleared.`;
     }
 
     if (lower.includes('android') || lower.includes('phone')) {
-      return `DON's **Android Companion** communicates over end-to-end encrypted local mDNS and secure cloud relay fallback. Key safety rules:\n- Direct calls require explicit phone-side approval.\n- Wi-Fi calling routing remains governed by your mobile carrier.\n- No stealth calls, background audio recording, or lock-screen bypasses are ever permitted.`;
+      return `DON's Android Companion communicates over encrypted local mDNS or cloud relay, and direct calls always require explicit phone-side approval.`;
     }
 
-    if (lower.includes('explain') || lower.includes('how does') || lower.includes('what is') || lower.includes('tell me about')) {
-      const topic = prompt.replace(/^(explain|how does|what is|tell me about|why is|who is)\s+/i, '').replace(/\?+$/, '').trim();
-      return `Here is a structured overview of **${topic || prompt}**:\n\n### Core Concept\n${topic || prompt} represents a key operational principle. In production architecture, it decouples dependencies, provides deterministic guarantees, and ensures safety boundaries.\n\n### Key Pillars\n1. **State Isolation**: Keeping concerns modular and auditable.\n2. **Security & Sandboxing**: Restricting execution privilege to prevent side effects.\n3. **Resilience & Observability**: Structured logging, telemetry, and graceful error fallbacks.\n\nWould you like me to query live Google sources or generate an architectural template for this?`;
-    }
-
-    return `I received your operational input: "${prompt}".\n\nDON is fully operational and synchronized. You can ask me to:\n- 🔍 Search Google for real-time news and verified sources.\n- 💻 Launch allowlisted Windows applications (Calculator, Notepad, Terminal).\n- 🧮 Solve mathematical equations and unit conversions.\n- ⌨️ Write production-ready code in TypeScript, Python, or SQL.\n- 📋 Add and track Kanban tasks, reminders, and daily briefings.`;
+    return `Received: "${prompt}". Ask me to search live knowledge sources, open a site in Microsoft Edge, launch a Windows app, or handle WhatsApp documents and calls.`;
   }
 }

@@ -38,6 +38,45 @@ export const AllowlistedAppSchema = z.object({
   icon: z.string().default('app-window'),
   permissionLevel: z.enum(['LAUNCH_ONLY', 'READ_WINDOW_TITLE']).default('LAUNCH_ONLY'),
   isEnabled: z.boolean().default(true),
+  trusted: z.boolean().default(false),
   createdAt: z.string().datetime(),
 });
 export type AllowlistedApp = z.infer<typeof AllowlistedAppSchema>;
+
+export const InstalledAppSourceSchema = z.enum([
+  'START_MENU',
+  'APPX',
+  'SYSTEM_UTILITY',
+  'USER_CUSTOM',
+]);
+export type InstalledAppSource = z.infer<typeof InstalledAppSourceSchema>;
+
+export const InstalledAppEntrySchema = z.object({
+  id: z.string().min(1),
+  appName: z.string().min(1),
+  executablePath: z.string().min(1),
+  launchArgs: z.array(z.string()).default([]),
+  source: InstalledAppSourceSchema.default('START_MENU'),
+  trusted: z.boolean().default(false),
+  autoApprove: z.boolean().default(false),
+  publisher: z.string().optional(),
+  icon: z.string().optional(),
+});
+export type InstalledAppEntry = z.infer<typeof InstalledAppEntrySchema>;
+
+export const TrustedLaunchModeSchema = z.enum([
+  'REQUIRE_APPROVAL',
+  'TRUSTED_FAST_LAUNCH',
+  'ALLOWLIST_ONLY',
+]);
+export type TrustedLaunchMode = z.infer<typeof TrustedLaunchModeSchema>;
+
+export const TrustedFastLaunchPolicySchema = z.object({
+  enabled: z.boolean().default(true),
+  mode: TrustedLaunchModeSchema.default('TRUSTED_FAST_LAUNCH'),
+  trustedAppIds: z.array(z.string()).default([]),
+  trustedAppNames: z.array(z.string()).default([]),
+  enforceRegistryValidation: z.boolean().default(true),
+  updatedAt: z.string().datetime().optional(),
+});
+export type TrustedFastLaunchPolicy = z.infer<typeof TrustedFastLaunchPolicySchema>;

@@ -85,8 +85,71 @@ export async function chatRoutes(fastify: FastifyInstance) {
     // 4. Generate AI response and tool proposals
     const response = await provider.generateResponse(messages, context);
 
-    // 5. Register pending approvals for proposals requiring confirmation
+    // 5. Register pending approvals or auto-execute Trusted Fast-Launch apps
     for (const proposal of response.toolProposals) {
+      if (
+        proposal.requiresApproval &&
+        proposal.toolName === 'propose_open_desktop_app' &&
+        db.trustedPolicy.enabled &&
+        db.trustedPolicy.mode !== 'REQUIRE_APPROVAL'
+      ) {
+        const requestedAppName = String(proposal.parameters?.appName || '').trim().toLowerCase();
+        const trustedInstalled = Array.from(db.installedApps.values()).find(
+          (a) => a.trusted && a.autoApprove && a.appName.toLowerCase() === requestedAppName
+        );
+        const trustedAllowlisted = Array.from(db.allowlistedApps.values()).find(
+          (a) => a.trusted && a.isEnabled && a.appName.toLowerCase() === requestedAppName
+        );
+        const matched = trustedInstalled || trustedAllowlisted;
+
+        if (matched) {
+          proposal.status = 'APPROVED';
+          proposal.requiresApproval = false;
+
+          relayService.broadcast({
+            id: crypto.randomUUID(),
+            type: 'EXECUTE_DESKTOP_APP',
+            payload: {
+              proposalId: proposal.id,
+              autoApprovedTrusted: true,
+              parameters: {
+                ...proposal.parameters,
+                appName: matched.appName,
+                executablePath: matched.executablePath,
+              },
+            },
+            timestamp: new Date().toISOString(),
+          });
+
+          if (process.platform === 'win32') {
+            try {
+              const child = child_process.spawn(matched.executablePath, [], {
+                detached: true,
+                stdio: 'ignore',
+              });
+              if (child && typeof child.on === 'function') {
+                child.on('error', () => { /* ignore */ });
+              }
+              child.unref();
+            } catch {
+              // ignore spawn errors
+            }
+          }
+
+          auditService.record({
+            userId,
+            deviceType: 'DESKTOP_AGENT',
+            toolName: proposal.toolName,
+            parameters: { ...proposal.parameters, executablePath: matched.executablePath },
+            targetResource: matched.appName,
+            consequenceSummary: `Trusted Fast-Launch auto-approved and executed "${matched.appName}"`,
+            status: 'AUTO_APPROVED_TRUSTED',
+            decisionMadeBy: 'TRUSTED_FAST_LAUNCH',
+          });
+          continue;
+        }
+      }
+
       if (proposal.requiresApproval) {
         db.approvals.set(proposal.id, { ...proposal, userId });
         auditService.record({
@@ -229,9 +292,19 @@ export async function chatRoutes(fastify: FastifyInstance) {
       }
     } else if (proposal.toolName === 'propose_open_website' && proposal.parameters?.url) {
       const url = String(proposal.parameters.url);
+      relayService.broadcast({
+        id: crypto.randomUUID(),
+        type: 'EDGE_OPEN_NEW_TAB',
+        payload: { url, newTab: true, browser: 'msedge' },
+        timestamp: new Date().toISOString(),
+      });
       if (process.platform === 'win32') {
         try {
-          child_process.spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
+          const child = child_process.spawn('msedge.exe', ['--new-tab', url], { detached: true, stdio: 'ignore' });
+          if (child && typeof child.on === 'function') {
+            child.on('error', () => { /* ignore */ });
+          }
+          child.unref();
         } catch {
           // Ignore website handler registration error
         }

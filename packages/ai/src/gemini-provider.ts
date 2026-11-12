@@ -7,6 +7,7 @@ import {
 import { MockAIProvider } from './mock-provider.js';
 import { WebSearchResultItem, ToolCallProposal } from '@don/shared';
 import { evaluateConsequence } from './consequences.js';
+import { JARVIS_SYSTEM_DIRECTIVE, enforceShortAnswerFirst } from './jarvis-directive.js';
 
 export class GeminiAIProvider implements AIProvider {
   name = 'GeminiAIProvider';
@@ -30,10 +31,11 @@ export class GeminiAIProvider implements AIProvider {
         parts: [
           {
             text: `You are DON (Digital Operations Navigator), a secure, advanced, multi-device AI assistant for your authenticated owner.
+${JARVIS_SYSTEM_DIRECTIVE}
 Your goals:
 - Useful, transparent, privacy-respecting, and strictly permission-based.
 - Never directly execute consequential actions without proposing typed confirmation.
-- When the user asks to launch an application, open a website, dial a phone, capture the screen, or change external settings, explain the consequence clearly.
+- When the user asks to launch an application, open a website in Microsoft Edge, dial a phone, use WhatsApp, capture the screen, or change external settings, explain the consequence concisely.
 - If the user asks for factual info, research, or news, utilize Google Search grounding and cite your sources.
 Owner Name: ${context?.userName || 'Owner'}.
 Registered Allowlisted Desktop Apps: ${context?.allowlistedApps?.map((a) => a.appName).join(', ') || 'Calculator, Notepad'}.`,
@@ -145,8 +147,11 @@ Registered Allowlisted Desktop Apps: ${context?.allowlistedApps?.map((a) => a.ap
         });
       }
 
+      const lastUserPrompt = lastUserMsg?.content || '';
+      const conciseReply = enforceShortAnswerFirst(text, lastUserPrompt);
+
       return {
-        reply: text,
+        reply: conciseReply,
         toolProposals,
         usedMemories: [],
         citations,

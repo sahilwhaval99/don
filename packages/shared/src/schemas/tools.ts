@@ -35,14 +35,38 @@ export const WebSearchParamSchema = z.object({
 });
 export type WebSearchParam = z.infer<typeof WebSearchParamSchema>;
 
+export const KnowledgeSourceTypeSchema = z.enum([
+  'WIKIPEDIA',
+  'DUCKDUCKGO',
+  'ARXIV',
+  'STACKEXCHANGE',
+  'GITHUB',
+  'GOOGLE_LIVE_RSS',
+  'GOOGLE_CSE',
+  'BRAVE',
+  'TAVILY',
+  'WEB',
+]);
+export type KnowledgeSourceType = z.infer<typeof KnowledgeSourceTypeSchema>;
+
 export const WebSearchResultItemSchema = z.object({
   title: z.string(),
   url: z.string().url(),
   snippet: z.string(),
   publishedDate: z.string().nullable().optional(),
   uncertaintyScore: z.number().min(0).max(1).default(0.1),
+  source: KnowledgeSourceTypeSchema.optional(),
+  sourceName: z.string().optional(),
+  relevanceScore: z.number().min(0).max(1).optional(),
 });
 export type WebSearchResultItem = z.infer<typeof WebSearchResultItemSchema>;
+
+export const MultiSourceCitationSchema = WebSearchResultItemSchema.extend({
+  source: KnowledgeSourceTypeSchema,
+  sourceName: z.string(),
+  fetchedAt: z.string().datetime().optional(),
+});
+export type MultiSourceCitation = z.infer<typeof MultiSourceCitationSchema>;
 
 export const ConnectedDocParamSchema = z.object({
   question: z.string().min(1),
@@ -89,24 +113,103 @@ export const AnalyzeSharedContentParamSchema = z.object({
 export type AnalyzeSharedContentParam = z.infer<typeof AnalyzeSharedContentParamSchema>;
 
 export const ProposeOpenDesktopAppParamSchema = z.object({
-  appId: z.string().uuid().optional(),
+  appId: z.string().min(1).optional(),
   appName: z.string().min(1),
+  executablePath: z.string().optional(),
+  trustedFastLaunch: z.boolean().optional(),
   reason: z.string().min(1),
 });
 export type ProposeOpenDesktopAppParam = z.infer<typeof ProposeOpenDesktopAppParamSchema>;
 
 export const ProposeOpenWebsiteParamSchema = z.object({
   url: z.string().url(),
+  browser: z.enum(['msedge', 'default']).default('msedge').optional(),
   reason: z.string().min(1),
 });
 export type ProposeOpenWebsiteParam = z.infer<typeof ProposeOpenWebsiteParamSchema>;
 
+export const EdgeBrowserActionTypeSchema = z.enum([
+  'open_new_tab',
+  'switch_tab',
+  'list_open_tabs',
+  'read_active_page_summary',
+  'media_control',
+]);
+export type EdgeBrowserActionType = z.infer<typeof EdgeBrowserActionTypeSchema>;
+
 export const ProposeBrowserActionParamSchema = z.object({
-  actionType: z.enum(['NAVIGATE', 'NEW_TAB', 'YOUTUBE_SEARCH', 'YOUTUBE_PLAY_PAUSE', 'INSPECT_PAGE']),
+  actionType: z.enum([
+    'NAVIGATE',
+    'NEW_TAB',
+    'YOUTUBE_SEARCH',
+    'YOUTUBE_PLAY_PAUSE',
+    'INSPECT_PAGE',
+    'open_new_tab',
+    'switch_tab',
+    'list_open_tabs',
+    'read_active_page_summary',
+    'media_control',
+  ]),
   targetUrl: z.string().url().optional(),
   actionDetails: z.record(z.unknown()).default({}),
 });
 export type ProposeBrowserActionParam = z.infer<typeof ProposeBrowserActionParamSchema>;
+
+export const EdgeOpenNewTabParamSchema = z.object({
+  url: z.string().url(),
+  active: z.boolean().default(true),
+});
+export type EdgeOpenNewTabParam = z.infer<typeof EdgeOpenNewTabParamSchema>;
+
+export const EdgeSwitchTabParamSchema = z.object({
+  tabId: z.union([z.number().int(), z.string()]).optional(),
+  titleOrUrlMatch: z.string().min(1).optional(),
+});
+export type EdgeSwitchTabParam = z.infer<typeof EdgeSwitchTabParamSchema>;
+
+export const EdgeListOpenTabsParamSchema = z.object({
+  windowId: z.number().int().optional(),
+});
+export type EdgeListOpenTabsParam = z.infer<typeof EdgeListOpenTabsParamSchema>;
+
+export const EdgeReadActivePageSummaryParamSchema = z.object({
+  maxChars: z.number().int().min(100).max(20000).default(4000),
+});
+export type EdgeReadActivePageSummaryParam = z.infer<typeof EdgeReadActivePageSummaryParamSchema>;
+
+export const EdgeMediaControlParamSchema = z.object({
+  command: z.enum(['PLAY', 'PAUSE', 'TOGGLE', 'NEXT', 'PREVIOUS', 'MUTE', 'UNMUTE']),
+  tabId: z.union([z.number().int(), z.string()]).optional(),
+});
+export type EdgeMediaControlParam = z.infer<typeof EdgeMediaControlParamSchema>;
+
+export const EdgeBrowserTabSchema = z.object({
+  id: z.union([z.number().int(), z.string()]),
+  title: z.string(),
+  url: z.string(),
+  active: z.boolean().default(false),
+  windowId: z.number().int().optional(),
+  audible: z.boolean().optional(),
+});
+export type EdgeBrowserTab = z.infer<typeof EdgeBrowserTabSchema>;
+
+export const WhatsAppSearchDownloadOpenParamSchema = z.object({
+  query: z.string().min(1),
+  contactOrGroup: z.string().optional(),
+  fileTypes: z.array(z.string()).default(['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'xlsx']),
+  openAfterDownload: z.boolean().default(true),
+  openInEdge: z.boolean().default(true),
+  reason: z.string().default('Search, download, and open document from WhatsApp or local Downloads'),
+});
+export type WhatsAppSearchDownloadOpenParam = z.infer<typeof WhatsAppSearchDownloadOpenParamSchema>;
+
+export const WhatsAppCallParamSchema = z.object({
+  contactName: z.string().min(1),
+  phoneNumber: z.string().optional(),
+  callType: z.enum(['VOICE', 'VIDEO']).default('VOICE'),
+  reason: z.string().default('Initiate WhatsApp call via WhatsApp Desktop'),
+});
+export type WhatsAppCallParam = z.infer<typeof WhatsAppCallParamSchema>;
 
 export const ProposePhoneDialParamSchema = z.object({
   phoneNumber: z.string().min(3),

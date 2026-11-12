@@ -6,7 +6,19 @@ import {
   DeviceSchema,
   KillSwitchStatusSchema,
   AuditLogEntrySchema,
+  AuditStatusSchema,
   ToolCallProposalSchema,
+  ALLOWED_TOOLS,
+  EdgeOpenNewTabParamSchema,
+  EdgeSwitchTabParamSchema,
+  EdgeMediaControlParamSchema,
+  EdgeBrowserTabSchema,
+  InstalledAppEntrySchema,
+  TrustedFastLaunchPolicySchema,
+  WhatsAppSearchDownloadOpenParamSchema,
+  WhatsAppCallParamSchema,
+  MultiSourceCitationSchema,
+  WebSearchResultItemSchema,
 } from '../index.js';
 
 describe('@don/shared Schemas', () => {
@@ -105,6 +117,88 @@ describe('@don/shared Schemas', () => {
       };
       const result = ToolCallProposalSchema.safeParse(proposal);
       expect(result.success).toBe(true);
+    });
+  });
+
+  describe('Phase 2 Schemas (Edge, Trusted Fast-Launch, WhatsApp, Multi-Source)', () => {
+    it('includes Edge browser and WhatsApp tools in ALLOWED_TOOLS', () => {
+      expect(ALLOWED_TOOLS).toContain('open_new_tab');
+      expect(ALLOWED_TOOLS).toContain('switch_tab');
+      expect(ALLOWED_TOOLS).toContain('list_open_tabs');
+      expect(ALLOWED_TOOLS).toContain('read_active_page_summary');
+      expect(ALLOWED_TOOLS).toContain('media_control');
+      expect(ALLOWED_TOOLS).toContain('whatsapp_search_download_open');
+      expect(ALLOWED_TOOLS).toContain('whatsapp_call');
+    });
+
+    it('validates Edge browser action parameter schemas', () => {
+      expect(EdgeOpenNewTabParamSchema.safeParse({ url: 'https://youtube.com' }).success).toBe(true);
+      expect(EdgeSwitchTabParamSchema.safeParse({ titleOrUrlMatch: 'github' }).success).toBe(true);
+      expect(EdgeMediaControlParamSchema.safeParse({ command: 'PAUSE' }).success).toBe(true);
+      expect(
+        EdgeBrowserTabSchema.safeParse({
+          id: 42,
+          title: 'GitHub',
+          url: 'https://github.com',
+          active: true,
+        }).success
+      ).toBe(true);
+    });
+
+    it('validates Trusted Fast-Launch policy, InstalledAppEntry, and AUTO_APPROVED_TRUSTED audit status', () => {
+      expect(AuditStatusSchema.safeParse('AUTO_APPROVED_TRUSTED').success).toBe(true);
+      const appEntry = InstalledAppEntrySchema.safeParse({
+        id: 'win-calc',
+        appName: 'Calculator',
+        executablePath: 'C:\\Windows\\System32\\calc.exe',
+        source: 'SYSTEM_UTILITY',
+        trusted: true,
+        autoApprove: true,
+      });
+      expect(appEntry.success).toBe(true);
+
+      const policy = TrustedFastLaunchPolicySchema.safeParse({
+        enabled: true,
+        mode: 'TRUSTED_FAST_LAUNCH',
+        trustedAppIds: ['win-calc'],
+        trustedAppNames: ['Calculator'],
+      });
+      expect(policy.success).toBe(true);
+    });
+
+    it('validates WhatsApp integration parameter schemas', () => {
+      const searchDoc = WhatsAppSearchDownloadOpenParamSchema.safeParse({
+        query: 'syllabus',
+        openAfterDownload: true,
+        openInEdge: true,
+      });
+      expect(searchDoc.success).toBe(true);
+
+      const call = WhatsAppCallParamSchema.safeParse({
+        contactName: 'Mom',
+        callType: 'VOICE',
+      });
+      expect(call.success).toBe(true);
+    });
+
+    it('validates multi-source knowledge citations', () => {
+      const cite = MultiSourceCitationSchema.safeParse({
+        title: 'Quantum computing',
+        url: 'https://en.wikipedia.org/wiki/Quantum_computing',
+        snippet: 'Quantum computing is a type of computation...',
+        source: 'WIKIPEDIA',
+        sourceName: 'Wikipedia',
+        uncertaintyScore: 0.05,
+      });
+      expect(cite.success).toBe(true);
+      expect(
+        WebSearchResultItemSchema.safeParse({
+          title: 'arXiv paper',
+          url: 'https://arxiv.org/abs/2401.00001',
+          snippet: 'Abstract text',
+          source: 'ARXIV',
+        }).success
+      ).toBe(true);
     });
   });
 });

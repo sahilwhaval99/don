@@ -4,6 +4,7 @@ export const AuditStatusSchema = z.enum([
   'PROPOSED',
   'AWAITING_APPROVAL',
   'APPROVED',
+  'AUTO_APPROVED_TRUSTED',
   'DENIED',
   'EXECUTED',
   'BLOCKED_BY_KILL_SWITCH',

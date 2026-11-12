@@ -16,6 +16,8 @@ import {
   KillSwitchBanner,
   ApprovalCard,
 } from '@don/ui';
+import { JarvisCoreHud, HudCoreState } from '../components/JarvisCoreHud';
+import { TrustedAppsRegistry, TrustedAppEntry } from '../components/TrustedAppsRegistry';
 import {
   Shield,
   Bot,
@@ -58,7 +60,7 @@ export default function DashboardPage() {
   // Navigation & View State
   const [activeTab, setActiveTab] = useState<
     'overview' | 'chat' | 'tasks' | 'goals' | 'docs' | 'meeting' | 'research' | 'devices' | 'automations' | 'privacy'
-  >('overview');
+  >('chat');
 
   // Backend & AI Credentials State
   const [apiBaseUrl, setApiBaseUrl] = useState<string>('http://localhost:3001');
@@ -72,15 +74,28 @@ export default function DashboardPage() {
   // Core Status State
   const [assistantStatus, setAssistantStatus] = useState<AssistantStatus>('ready');
 
-  // Voice State (STT & TTS)
+  // Voice State (STT, TTS & Continuous J.A.R.V.I.S. Loop)
   const [isVoiceListening, setIsVoiceListening] = useState<boolean>(false);
+  const [isVoiceLoopEnabled, setIsVoiceLoopEnabled] = useState<boolean>(false);
+  const [isVoiceLoopPaused, setIsVoiceLoopPaused] = useState<boolean>(false);
   const [voiceTranscriptInterim, setVoiceTranscriptInterim] = useState<string>('');
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [ttsAutoSpeak, setTtsAutoSpeak] = useState<boolean>(true);
+  const [micPermissionDenied, setMicPermissionDenied] = useState<boolean>(false);
+  const [analyserNode, setAnalyserNode] = useState<AnalyserNode | null>(null);
+  const [edgeBridgeConnected, setEdgeBridgeConnected] = useState<boolean>(false);
   const recognitionRef = useRef<any>(null);
   const activeUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const autoSendTimerRef = useRef<any>(null);
+  const voiceLoopEnabledRef = useRef<boolean>(false);
+  const voiceLoopPausedRef = useRef<boolean>(false);
+  const killSwitchRef = useRef<boolean>(false);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const handleSendMessageRef = useRef<(customPrompt?: string, fromVoice?: boolean) => Promise<void>>(
+    async () => {}
+  );
 
   const [killSwitch, setKillSwitch] = useState<KillSwitchStatus>({
     isActivated: false,
@@ -176,11 +191,17 @@ export default function DashboardPage() {
   const [docSearchQuery, setDocSearchQuery] = useState('');
   const [docSearchResult, setDocSearchResult] = useState<any>(null);
 
-  // Devices & Desktop Allowlist
-  const [allowlistedApps, setAllowlistedApps] = useState([
-    { id: '1', appName: 'Calculator', executablePath: 'C:\\Windows\\System32\\calc.exe', icon: 'calc', isEnabled: true },
-    { id: '2', appName: 'Notepad', executablePath: 'C:\\Windows\\System32\\notepad.exe', icon: 'edit', isEnabled: true },
-    { id: '3', appName: 'Windows Terminal', executablePath: 'C:\\Windows\\System32\\cmd.exe', icon: 'terminal', isEnabled: true },
+  // Devices, Trusted Fast-Launch & Desktop Registry
+  const [trustedFastLaunch, setTrustedFastLaunch] = useState<boolean>(true);
+  const [trustedApps, setTrustedApps] = useState<TrustedAppEntry[]>([
+    { id: '1', appName: 'Calculator', executablePath: 'C:\\Windows\\System32\\calc.exe', source: 'system', trusted: true },
+    { id: '2', appName: 'Notepad', executablePath: 'C:\\Windows\\System32\\notepad.exe', source: 'system', trusted: true },
+    { id: '3', appName: 'Windows Terminal', executablePath: 'wt.exe', source: 'system', trusted: true },
+    { id: '4', appName: 'Microsoft Edge', executablePath: 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', source: 'browser', trusted: true },
+    { id: '5', appName: 'Visual Studio Code', executablePath: 'code', source: 'start-menu', trusted: true },
+    { id: '6', appName: 'Spotify', executablePath: 'spotify', source: 'start-menu', trusted: false },
+    { id: '7', appName: 'WhatsApp Desktop', executablePath: 'whatsapp://', source: 'protocol', trusted: true },
+    { id: '8', appName: 'File Explorer', executablePath: 'explorer.exe', source: 'system', trusted: true },
   ]);
   const [phoneDialNumber, setPhoneDialNumber] = useState('+1-555-0199');
   const [pairingToken, setPairingToken] = useState('DON-9482');
@@ -247,12 +268,38 @@ export default function DashboardPage() {
           }
         } catch {}
 
-        // Fetch Allowlisted Apps
+        // Fetch Installed / Trusted Apps Registry
         try {
-          const appsRes = await fetch(`${url}/api/devices/allowlisted-apps`);
-          if (appsRes.ok) {
-            const apps = await appsRes.json();
-            if (Array.isArray(apps) && apps.length > 0) setAllowlistedApps(apps);
+          const installedRes = await fetch(`${url}/api/devices/installed-apps`);
+          if (installedRes.ok) {
+            const payload = await installedRes.json();
+            const list = Array.isArray(payload) ? payload : payload?.apps;
+            if (Array.isArray(list) && list.length > 0) {
+              setTrustedApps(
+                list.map((a: any, idx: number) => ({
+                  id: a.id || `app-${idx}`,
+                  appName: a.appName || a.name || 'Unknown App',
+                  executablePath: a.executablePath || a.path || a.command || '',
+                  source: a.source || 'start-menu',
+                  trusted: Boolean(a.trusted ?? true),
+                }))
+              );
+            }
+          }
+        } catch {}
+
+        // Fetch Trusted Fast-Launch Policy
+        try {
+          const policyRes = await fetch(`${url}/api/devices/trusted-policy`);
+          if (policyRes.ok) {
+            const policy = await policyRes.json();
+            const fastLaunchVal = policy?.enabled ?? policy?.trustedFastLaunch;
+            if (typeof fastLaunchVal === 'boolean') {
+              setTrustedFastLaunch(fastLaunchVal);
+            }
+            if (typeof policy?.edgeBridgeConnected === 'boolean') {
+              setEdgeBridgeConnected(policy.edgeBridgeConnected);
+            }
           }
         } catch {}
 
@@ -287,6 +334,8 @@ export default function DashboardPage() {
       const savedGemini = localStorage.getItem('don_gemini_key') || '';
       const savedSearchKey = localStorage.getItem('don_google_search_key') || '';
       const savedCx = localStorage.getItem('don_google_cx') || '';
+      const savedFastLaunch = localStorage.getItem('don_trusted_fast_launch');
+      if (savedFastLaunch !== null) setTrustedFastLaunch(savedFastLaunch === 'true');
       setGeminiApiKey(savedGemini);
       setGoogleSearchApiKey(savedSearchKey);
       setGoogleSearchEngineId(savedCx);
@@ -301,105 +350,95 @@ export default function DashboardPage() {
       window.speechSynthesis.getVoices();
     }
 
-    // Clean up speech synthesis on unmount
+    // Clean up speech synthesis and mic stream on unmount
     return () => {
-      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, []);
-
-  // Text-To-Speech (TTS) Engine with Garbage-Collection Safety & Natural Voice Selection
-  const speakText = (text: string) => {
-    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
-    try {
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-
-      // Clean markdown, links, and code blocks for crisp vocal cadence
-      const cleanText = text
-        .replace(/```[\s\S]*?```/g, 'Code block omitted.')
-        .replace(/[*_#`[\]()]/g, '')
-        .replace(/https?:\/\/\S+/g, 'link')
-        .replace(/\n+/g, '. ')
-        .slice(0, 480);
-
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 1.02;
-      utterance.pitch = 1.0;
-
-      // Select natural English voice if present
-      const voices = window.speechSynthesis.getVoices();
-      const preferred = voices.find(
-        (v) =>
-          v.lang.startsWith('en') &&
-          (v.name.includes('Natural') ||
-            v.name.includes('Google') ||
-            v.name.includes('David') ||
-            v.name.includes('Zira') ||
-            v.name.includes('Samantha'))
-      ) || voices.find((v) => v.lang.startsWith('en'));
-
-      if (preferred) {
-        utterance.voice = preferred;
-      }
-
-      utterance.onstart = () => {
-        setIsSpeaking(true);
-        setAssistantStatus('running');
-      };
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        setAssistantStatus('ready');
-      };
-      utterance.onerror = () => {
-        setIsSpeaking(false);
-        setAssistantStatus('ready');
-      };
-
-      activeUtteranceRef.current = utterance;
-      window.speechSynthesis.speak(utterance);
-    } catch (e) {
-      console.warn('TTS playback note:', e);
-      setIsSpeaking(false);
-    }
-  };
-
-  const stopSpeaking = () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      setIsSpeaking(false);
-      setAssistantStatus('ready');
-    }
-  };
-
-  // Real Speech-To-Text (Web Speech API) with Real-Time Feedback and Auto-Submission
-  const handleToggleVoice = () => {
-    setVoiceError(null);
-
-    if (isVoiceListening) {
       if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
       if (recognitionRef.current) {
         try {
           recognitionRef.current.stop();
         } catch {}
       }
-      setIsVoiceListening(false);
-      setVoiceTranscriptInterim('');
-      setAssistantStatus('ready');
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((t) => t.stop());
+      }
+      if (audioCtxRef.current) {
+        audioCtxRef.current.close().catch(() => {});
+      }
+      if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+    };
+  }, []);
+
+  // Web Audio API Mic Analyser Setup (with graceful fallback if mic denied)
+  const ensureMicAnalyser = async () => {
+    if (typeof window === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      setMicPermissionDenied(true);
       return;
     }
+    if (analyserNode && micStreamRef.current) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+      const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+      const ctx = new AudioContextCtor();
+      audioCtxRef.current = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 128;
+      source.connect(analyser);
+      setAnalyserNode(analyser);
+      setMicPermissionDenied(false);
+    } catch {
+      setMicPermissionDenied(true);
+      setAnalyserNode(null);
+    }
+  };
 
-    if (typeof window === 'undefined') return;
+  const teardownMicAnalyser = () => {
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((t) => t.stop());
+      micStreamRef.current = null;
+    }
+    if (audioCtxRef.current) {
+      audioCtxRef.current.close().catch(() => {});
+      audioCtxRef.current = null;
+    }
+    setAnalyserNode(null);
+  };
+
+  const stopVoiceRecognition = () => {
+    if (autoSendTimerRef.current) {
+      clearTimeout(autoSendTimerRef.current);
+      autoSendTimerRef.current = null;
+    }
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+      } catch {}
+      recognitionRef.current = null;
+    }
+    setIsVoiceListening(false);
+    setVoiceTranscriptInterim('');
+  };
+
+  const startVoiceRecognition = async () => {
+    if (typeof window === 'undefined' || killSwitchRef.current) return;
+    setVoiceError(null);
 
     const SpeechRec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
     if (!SpeechRec) {
       setVoiceError(
-        'Web Speech API is not supported in this browser. Please use Google Chrome or Microsoft Edge to use microphone voice input.'
+        'Web Speech API is not supported in this browser. Please use Google Chrome or Microsoft Edge for voice input.'
       );
       return;
     }
+
+    await ensureMicAnalyser();
+
+    // Ensure no stale recognition instance is running
+    stopVoiceRecognition();
 
     try {
       const recognition = new SpeechRec();
@@ -420,39 +459,72 @@ export default function DashboardPage() {
         }
 
         const trimmed = fullTranscript.trim();
-        if (trimmed) {
-          setVoiceTranscriptInterim(trimmed);
-          setInputPrompt(trimmed);
+        if (!trimmed) return;
 
-          // Auto-send debounce: if user stops speaking for 1.5 seconds, automatically dispatch
-          if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
-          autoSendTimerRef.current = setTimeout(() => {
-            if (recognitionRef.current) {
-              try {
-                recognitionRef.current.stop();
-              } catch {}
-            }
-            setIsVoiceListening(false);
-            setVoiceTranscriptInterim('');
-            handleSendMessage(trimmed, true);
-          }, 1500);
+        setVoiceTranscriptInterim(trimmed);
+        setInputPrompt(trimmed);
+
+        const lower = trimmed.toLowerCase();
+        if (
+          lower.includes('stop listening') ||
+          lower.includes('jarvis stop') ||
+          lower.includes('don stop') ||
+          lower.includes('pause listening')
+        ) {
+          stopVoiceRecognition();
+          voiceLoopEnabledRef.current = false;
+          voiceLoopPausedRef.current = false;
+          setIsVoiceLoopEnabled(false);
+          setIsVoiceLoopPaused(false);
+          teardownMicAnalyser();
+          setAssistantStatus('ready');
+          setInputPrompt('');
+          return;
         }
+
+        // Auto-submit on 1.2s silence
+        if (autoSendTimerRef.current) clearTimeout(autoSendTimerRef.current);
+        autoSendTimerRef.current = setTimeout(() => {
+          stopVoiceRecognition();
+          setInputPrompt('');
+          handleSendMessageRef.current(trimmed, true);
+        }, 1200);
       };
 
       recognition.onerror = (event: any) => {
-        console.warn('[DON Voice] Recognition notice:', event.error);
         if (event.error === 'not-allowed') {
-          setVoiceError('Microphone permission was denied. Please allow microphone access in your browser address bar.');
-          setIsVoiceListening(false);
+          setVoiceError('Microphone permission was denied. Using fallback spectrum; allow mic access for voice input.');
+          setMicPermissionDenied(true);
+          stopVoiceRecognition();
+          voiceLoopEnabledRef.current = false;
+          setIsVoiceLoopEnabled(false);
           setAssistantStatus('ready');
-        } else if (event.error !== 'no-speech') {
+        } else if (event.error !== 'no-speech' && event.error !== 'aborted') {
           setVoiceError(`Voice input notice: ${event.error}`);
         }
       };
 
       recognition.onend = () => {
         setIsVoiceListening(false);
-        setAssistantStatus('ready');
+        // If continuous loop is active and we are not speaking/thinking/paused, re-arm
+        if (
+          voiceLoopEnabledRef.current &&
+          !voiceLoopPausedRef.current &&
+          !killSwitchRef.current &&
+          !activeUtteranceRef.current
+        ) {
+          setTimeout(() => {
+            if (
+              voiceLoopEnabledRef.current &&
+              !voiceLoopPausedRef.current &&
+              !killSwitchRef.current
+            ) {
+              startVoiceRecognition();
+            }
+          }, 300);
+        } else if (!isSpeaking) {
+          setAssistantStatus('ready');
+        }
       };
 
       recognitionRef.current = recognition;
@@ -462,6 +534,134 @@ export default function DashboardPage() {
       setIsVoiceListening(false);
       setAssistantStatus('ready');
     }
+  };
+
+  // Text-To-Speech (TTS) Engine with Echo Prevention & Continuous Loop Re-arming
+  const speakText = (text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    try {
+      // Pause/stop SpeechRecognition while speaking to prevent echo
+      stopVoiceRecognition();
+
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+
+      const cleanText = text
+        .replace(/```[\s\S]*?```/g, 'Code block omitted.')
+        .replace(/[*_#`[\]()]/g, '')
+        .replace(/https?:\/\/\S+/g, 'link')
+        .replace(/\n+/g, '. ')
+        .slice(0, 480);
+
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 1.04;
+      utterance.pitch = 1.0;
+
+      const voices = window.speechSynthesis.getVoices();
+      const preferred =
+        voices.find(
+          (v) =>
+            v.lang.startsWith('en') &&
+            (v.name.includes('Natural') ||
+              v.name.includes('Google') ||
+              v.name.includes('David') ||
+              v.name.includes('Zira') ||
+              v.name.includes('Samantha'))
+        ) || voices.find((v) => v.lang.startsWith('en'));
+
+      if (preferred) {
+        utterance.voice = preferred;
+      }
+
+      const handleSpeechComplete = () => {
+        activeUtteranceRef.current = null;
+        setIsSpeaking(false);
+        if (
+          voiceLoopEnabledRef.current &&
+          !voiceLoopPausedRef.current &&
+          !killSwitchRef.current
+        ) {
+          setTimeout(() => {
+            if (
+              voiceLoopEnabledRef.current &&
+              !voiceLoopPausedRef.current &&
+              !killSwitchRef.current
+            ) {
+              startVoiceRecognition();
+            }
+          }, 250);
+        } else {
+          setAssistantStatus('ready');
+        }
+      };
+
+      utterance.onstart = () => {
+        setIsSpeaking(true);
+        setAssistantStatus('running');
+      };
+      utterance.onend = handleSpeechComplete;
+      utterance.onerror = handleSpeechComplete;
+
+      activeUtteranceRef.current = utterance;
+      window.speechSynthesis.speak(utterance);
+    } catch (e) {
+      console.warn('TTS playback note:', e);
+      activeUtteranceRef.current = null;
+      setIsSpeaking(false);
+    }
+  };
+
+  const stopSpeaking = () => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      activeUtteranceRef.current = null;
+      setIsSpeaking(false);
+      setAssistantStatus('ready');
+    }
+  };
+
+  const handleToggleVoiceLoop = () => {
+    if (killSwitchRef.current) return;
+    if (isVoiceLoopEnabled) {
+      voiceLoopEnabledRef.current = false;
+      voiceLoopPausedRef.current = false;
+      setIsVoiceLoopEnabled(false);
+      setIsVoiceLoopPaused(false);
+      stopVoiceRecognition();
+      teardownMicAnalyser();
+      setAssistantStatus('ready');
+    } else {
+      voiceLoopEnabledRef.current = true;
+      voiceLoopPausedRef.current = false;
+      setIsVoiceLoopEnabled(true);
+      setIsVoiceLoopPaused(false);
+      setTtsAutoSpeak(true);
+      startVoiceRecognition();
+    }
+  };
+
+  const handleTogglePauseVoiceLoop = () => {
+    if (!isVoiceLoopEnabled) return;
+    const nextPaused = !isVoiceLoopPaused;
+    voiceLoopPausedRef.current = nextPaused;
+    setIsVoiceLoopPaused(nextPaused);
+    if (nextPaused) {
+      stopVoiceRecognition();
+      setAssistantStatus('ready');
+    } else if (!isSpeaking && !killSwitchRef.current) {
+      startVoiceRecognition();
+    }
+  };
+
+  // Single-shot mic toggle in input bar
+  const handleToggleVoice = () => {
+    setVoiceError(null);
+    if (isVoiceListening) {
+      stopVoiceRecognition();
+      setAssistantStatus('ready');
+      return;
+    }
+    startVoiceRecognition();
   };
 
   // Safe Client-Side Math Evaluation
@@ -598,7 +798,7 @@ export default function DashboardPage() {
         system_instruction: {
           parts: [
             {
-              text: 'You are DON (Digital Operations Navigator), a secure, advanced, multi-device AI assistant. Answer intelligently, concisely, and cite Google Search sources where applicable.',
+              text: 'You are DON (J.A.R.V.I.S. / Digital Operations Navigator), a crisp, intelligent, multi-device AI assistant. Default to 1-3 short, direct sentences unless the user explicitly asks for a detailed explanation or code. Cite Google Search sources where applicable.',
             },
           ],
         },
@@ -702,21 +902,26 @@ export default function DashboardPage() {
       // 3. Comprehensive Intelligent Assistant Engine (for offline, static GitHub Pages, or mock mode)
       if (!data) {
         const lower = textToSend.toLowerCase();
+        const wantsDetailed =
+          /\b(detailed|in depth|elaborate|step by step|comprehensive|explain thoroughly|write code|full)\b/i.test(
+            lower
+          );
         let fallbackReply = '';
         const fallbackProposals: ToolCallProposal[] = [];
         let fallbackCitations: WebSearchResultItem[] = [];
 
-        // A. App Launch Request (Calculator, Notepad, Terminal)
-        if (lower.includes('calculator') || lower.includes('open app') || lower.includes('notepad') || lower.includes('launch') || lower.includes('terminal')) {
-          const appName = lower.includes('notepad') ? 'Notepad' : lower.includes('terminal') || lower.includes('cmd') ? 'Windows Terminal' : 'Calculator';
+        // A1. WhatsApp Document Search ("search syllabus on whatsapp", "find pdf on whatsapp")
+        if (lower.includes('whatsapp') && (lower.includes('search') || lower.includes('find') || lower.includes('download') || lower.includes('document') || lower.includes('syllabus') || lower.includes('pdf'))) {
+          const kwMatch = textToSend.match(/(?:search|find|download|open)\s+(?:for\s+)?(.+?)\s+(?:on|in)\s+whatsapp/i);
+          const keyword = kwMatch ? kwMatch[1].trim() : textToSend.replace(/whatsapp|search|find|download|open|on|in/gi, '').trim() || 'document';
           const prop: ToolCallProposal = {
             id: crypto.randomUUID(),
             toolName: 'propose_open_desktop_app',
-            parameters: { appName, reason: `Requested to open ${appName}` },
+            parameters: { action: 'whatsapp_search_download_open', keyword },
             consequence: {
-              target: `Desktop App: ${appName}`,
-              description: `Launch allowlisted application "${appName}" via local Windows desktop agent.`,
-              isReversible: false,
+              target: `WhatsApp Doc: "${keyword}"`,
+              description: `Search signed-in WhatsApp Web / local WhatsApp Downloads for "${keyword}" and open in Microsoft Edge.`,
+              isReversible: true,
               riskLevel: 'MEDIUM',
               requiresLocalAgent: true,
               requiresAndroidCompanion: false,
@@ -726,7 +931,130 @@ export default function DashboardPage() {
             createdAt: new Date().toISOString(),
           };
           fallbackProposals.push(prop);
-          fallbackReply = `I have submitted an approval request to launch **${appName}** on your Windows desktop.\n\nClick **Approve & Execute** below to confirm execution.`;
+          fallbackReply = `Searching WhatsApp for **${keyword}** and preparing to open it in Edge. Approve the action below to proceed.`;
+        }
+        // A2. WhatsApp Call ("call Mom on whatsapp", "whatsapp call Alex")
+        else if (lower.includes('whatsapp') && lower.includes('call')) {
+          const contactMatch =
+            textToSend.match(/call\s+(.+?)\s+on\s+whatsapp/i) ||
+            textToSend.match(/whatsapp\s+call\s+(.+)/i);
+          const contact = contactMatch ? contactMatch[1].trim() : 'Contact';
+          const prop: ToolCallProposal = {
+            id: crypto.randomUUID(),
+            toolName: 'propose_phone_call',
+            parameters: { action: 'whatsapp_call', contact },
+            consequence: {
+              target: `WhatsApp Call: ${contact}`,
+              description: `Initiate WhatsApp voice call to "${contact}" via WhatsApp Desktop / Edge bridge.`,
+              isReversible: true,
+              riskLevel: 'HIGH',
+              requiresLocalAgent: true,
+              requiresAndroidCompanion: false,
+            },
+            requiresApproval: true,
+            status: 'PENDING',
+            createdAt: new Date().toISOString(),
+          };
+          fallbackProposals.push(prop);
+          fallbackReply = `Prepared a WhatsApp call to **${contact}**. Please confirm below to place the call.`;
+        }
+        // A3. Open Website in Microsoft Edge ("open youtube", "open github.com")
+        else if (
+          /\bopen\s+(https?:\/\/\S+|[\w-]+\.(com|org|net|io|dev|ai|edu|gov)\S*|youtube|github|google|gmail|chatgpt|reddit|wikipedia)\b/i.test(
+            lower
+          )
+        ) {
+          const siteMatch = textToSend.match(/open\s+([^\s]+)/i);
+          const rawSite = siteMatch ? siteMatch[1].trim() : 'https://www.google.com';
+          const targetUrl = /^https?:\/\//i.test(rawSite)
+            ? rawSite
+            : rawSite.includes('.')
+            ? `https://${rawSite}`
+            : `https://www.${rawSite.toLowerCase()}.com`;
+
+          const prop: ToolCallProposal = {
+            id: crypto.randomUUID(),
+            toolName: 'propose_open_desktop_app',
+            parameters: { action: 'open_new_tab', browser: 'msedge', url: targetUrl },
+            consequence: {
+              target: `Microsoft Edge: ${targetUrl}`,
+              description: `Open ${targetUrl} in a new Microsoft Edge tab.`,
+              isReversible: true,
+              riskLevel: 'LOW',
+              requiresLocalAgent: true,
+              requiresAndroidCompanion: false,
+            },
+            requiresApproval: !trustedFastLaunch,
+            status: trustedFastLaunch ? 'APPROVED' : 'PENDING',
+            createdAt: new Date().toISOString(),
+          };
+          if (!trustedFastLaunch) {
+            fallbackProposals.push(prop);
+            fallbackReply = `Ready to open **${targetUrl}** in a new Microsoft Edge tab. Approve below to launch.`;
+          } else {
+            fallbackReply = `Opening **${targetUrl}** in a new Microsoft Edge tab.`;
+          }
+        }
+        // A4. App Launch Request (Matches any app in Trusted Registry or common utilities)
+        else if (
+          lower.includes('calculator') ||
+          lower.includes('open app') ||
+          lower.includes('notepad') ||
+          lower.includes('launch') ||
+          lower.includes('terminal') ||
+          lower.startsWith('open ')
+        ) {
+          const matchedRegistry = trustedApps.find((a) =>
+            lower.includes(a.appName.toLowerCase())
+          );
+          const appName =
+            matchedRegistry?.appName ||
+            (lower.includes('notepad')
+              ? 'Notepad'
+              : lower.includes('terminal') || lower.includes('cmd')
+              ? 'Windows Terminal'
+              : lower.includes('calculator')
+              ? 'Calculator'
+              : textToSend.replace(/^(open|launch|start)\s+/i, '').trim() || 'Calculator');
+          const isTrusted = Boolean(matchedRegistry?.trusted);
+
+          if (trustedFastLaunch && isTrusted) {
+            fallbackReply = `Fast-launching trusted app **${appName}** now (logged as AUTO_APPROVED_TRUSTED).`;
+            setAuditLogs((prev) => [
+              {
+                id: crypto.randomUUID(),
+                userId: '1',
+                deviceType: 'WEB',
+                toolName: 'propose_open_desktop_app',
+                parameters: { appName },
+                targetResource: `Desktop App: ${appName}`,
+                consequenceSummary: `Trusted Fast-Launch executed "${appName}" immediately.`,
+                status: 'APPROVED',
+                decisionMadeBy: 'SYSTEM',
+                createdAt: new Date().toISOString(),
+              },
+              ...prev,
+            ]);
+          } else {
+            const prop: ToolCallProposal = {
+              id: crypto.randomUUID(),
+              toolName: 'propose_open_desktop_app',
+              parameters: { appName, reason: `Requested to open ${appName}` },
+              consequence: {
+                target: `Desktop App: ${appName}`,
+                description: `Launch application "${appName}" via local Windows desktop agent.`,
+                isReversible: false,
+                riskLevel: 'MEDIUM',
+                requiresLocalAgent: true,
+                requiresAndroidCompanion: false,
+              },
+              requiresApproval: true,
+              status: 'PENDING',
+              createdAt: new Date().toISOString(),
+            };
+            fallbackProposals.push(prop);
+            fallbackReply = `Submitted an approval request to launch **${appName}** on your desktop. Click **Approve & Execute** below to confirm.`;
+          }
         }
         // B. Phone Call / Dialer Request
         else if (lower.includes('call') || lower.includes('dial')) {
@@ -921,27 +1249,36 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
 \`\`\``;
           }
         }
-        // F. Greetings
+        // F. Greetings (1-2 crisp J.A.R.V.I.S. sentences)
         else if (/^(hi|hello|hey|good\s*(morning|afternoon|evening)|greetings)\b/i.test(lower)) {
-          fallbackReply = `Good day. DON is ready and synchronized. All operational subsystems are active: Google Search Grounding, Voice Engine (STT/TTS), Windows Desktop Control, Android Companion, and Task Management. How can I assist you today?`;
+          fallbackReply = `Online and ready, Commander. All DON subsystems are nominal—what are your orders?`;
         }
-        // G. Explanations & Concepts
+        // G. Explanations & Concepts (1-3 crisp sentences unless user asks for detailed)
         else if (lower.includes('explain') || lower.includes('how does') || lower.includes('what is') || lower.includes('tell me about')) {
           const topic = textToSend.replace(/^(explain|how does|what is|tell me about|why is|who is)\s+/i, '').replace(/\?+$/, '').trim();
-          fallbackReply = `Here is a structured overview of **${topic || textToSend}**:\n\n### Core Concept\n${topic || textToSend} represents a key operational principle. In production architecture, it decouples dependencies, provides deterministic guarantees, and ensures safety boundaries.\n\n### Key Pillars\n1. **State Isolation**: Keeping concerns modular and auditable.\n2. **Security & Sandboxing**: Restricting execution privilege to prevent side effects.\n3. **Resilience & Observability**: Structured logging, telemetry, and graceful error fallbacks.\n\nWould you like me to query live Google sources or generate an architectural template for this?`;
+          if (wantsDetailed) {
+            fallbackReply = `Here is a structured overview of **${topic || textToSend}**:\n\n### Core Concept\n${topic || textToSend} decouples dependencies, provides deterministic guarantees, and enforces clear safety boundaries.\n\n### Key Pillars\n1. **State Isolation**: Keeping concerns modular and auditable.\n2. **Security & Sandboxing**: Restricting execution privilege to prevent side effects.\n3. **Resilience & Observability**: Structured logging, telemetry, and graceful error fallbacks.`;
+          } else {
+            fallbackCitations = await queryLiveGoogleAndWeb(topic || textToSend);
+            const topSnippet = fallbackCitations[0]?.snippet;
+            fallbackReply = topSnippet
+              ? `${topSnippet} Sources are attached below if you want a deeper breakdown.`
+              : `**${topic || textToSend}** is a foundational concept focused on deterministic behavior, modular isolation, and reliable execution. Ask me to "explain in detail" if you want a full breakdown.`;
+          }
         }
-        // H. Google & Web Search or Informational Query
+        // H. Google & Web Search or Informational Query (1-3 crisp sentences + citations)
         else {
           fallbackCitations = await queryLiveGoogleAndWeb(textToSend);
 
           if (fallbackCitations.length > 0) {
-            const formatted = fallbackCitations
-              .map((c, i) => `**${i + 1}. [${c.title}](${c.url})**\n${c.snippet}`)
-              .join('\n\n');
-
-            fallbackReply = `Here is what I retrieved from verified Google Search and live web sources for **"${textToSend}"**:\n\n${formatted}\n\n*Direct publisher links attached below.*`;
+            const top = fallbackCitations[0];
+            fallbackReply = wantsDetailed
+              ? `Here is what I retrieved for **"${textToSend}"**:\n\n${fallbackCitations
+                  .map((c, i) => `**${i + 1}. [${c.title}](${c.url})**\n${c.snippet}`)
+                  .join('\n\n')}`
+              : `${top.snippet} Verified citations for **${top.title}** are attached below.`;
           } else {
-            fallbackReply = `DON is ready and synchronized. You can ask me to search Google for real-time sources, launch allowlisted desktop applications (Calculator, Notepad), solve math equations, write code, or organize your tasks.`;
+            fallbackReply = `DON is ready. Ask me to search the web, open websites in Edge, launch trusted apps, or search WhatsApp documents.`;
           }
         }
 
@@ -963,9 +1300,25 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
       };
       setChatMessages((prev) => [...prev, botMsg]);
 
-      // Speak aloud if voice mode was used or auto-TTS is enabled
-      if (fromVoice || ttsAutoSpeak) {
+      // Speak aloud if voice mode or continuous loop is used or auto-TTS is enabled
+      const shouldSpeak =
+        fromVoice || ttsAutoSpeak || (voiceLoopEnabledRef.current && !voiceLoopPausedRef.current);
+      if (shouldSpeak && typeof window !== 'undefined' && 'speechSynthesis' in window) {
         speakText(data.reply);
+      } else if (
+        voiceLoopEnabledRef.current &&
+        !voiceLoopPausedRef.current &&
+        !killSwitchRef.current
+      ) {
+        setTimeout(() => {
+          if (
+            voiceLoopEnabledRef.current &&
+            !voiceLoopPausedRef.current &&
+            !killSwitchRef.current
+          ) {
+            startVoiceRecognition();
+          }
+        }, 250);
       }
 
       // Collect pending approvals
@@ -990,6 +1343,8 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
       setIsSending(false);
     }
   };
+
+  handleSendMessageRef.current = handleSendMessage;
 
   // Approval Handlers
   const handleApproveAction = async (proposalId: string) => {
@@ -1071,6 +1426,7 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
 
   // Kill Switch Handlers
   const handleToggleKillSwitch = async (activate: boolean) => {
+    killSwitchRef.current = activate;
     setKillSwitch({
       isActivated: activate,
       activatedAt: activate ? new Date().toISOString() : null,
@@ -1091,6 +1447,12 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
     if (activate) {
       setAssistantStatus('error');
       setPendingApprovals([]);
+      voiceLoopEnabledRef.current = false;
+      voiceLoopPausedRef.current = false;
+      setIsVoiceLoopEnabled(false);
+      setIsVoiceLoopPaused(false);
+      stopVoiceRecognition();
+      teardownMicAnalyser();
       stopSpeaking();
     } else {
       setAssistantStatus('ready');
@@ -1112,6 +1474,135 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
     };
     setAuditLogs((prev) => [log, ...prev]);
   };
+
+  // Phase 2 HUD & Trusted Fast-Launch Handlers
+  const handleOpenEdgeUrl = async (rawUrl: string) => {
+    const normalized = /^https?:\/\//i.test(rawUrl)
+      ? rawUrl
+      : rawUrl.includes('.')
+      ? `https://${rawUrl}`
+      : `https://www.${rawUrl}.com`;
+    if (isApiConnected) {
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/devices/open-website`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: normalized }),
+        });
+        if (res.ok) {
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: `Opened **${normalized}** in a new Microsoft Edge tab.`,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+          return;
+        }
+      } catch {}
+    }
+    handleSendMessage(`open ${normalized}`);
+  };
+
+  const handleWhatsAppSearchDoc = async (keyword: string) => {
+    if (isApiConnected) {
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/whatsapp/search-document`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query: keyword }),
+        });
+        if (res.ok) {
+          const result = await res.json();
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: result?.message || `Dispatched WhatsApp document search for **${keyword}**.`,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+          return;
+        }
+      } catch {}
+    }
+    handleSendMessage(`search ${keyword} on whatsapp`);
+  };
+
+  const handleWhatsAppCall = async (contact: string) => {
+    if (isApiConnected) {
+      try {
+        const res = await fetch(`${apiBaseUrl}/api/whatsapp/call`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contactName: contact }),
+        });
+        if (res.ok) {
+          const result = await res.json();
+          setChatMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: 'assistant',
+              content: result?.message || `Initiating WhatsApp call to **${contact}**.`,
+              createdAt: new Date().toISOString(),
+            },
+          ]);
+          return;
+        }
+      } catch {}
+    }
+    handleSendMessage(`call ${contact} on whatsapp`);
+  };
+
+  const handleToggleFastLaunch = async (enabled: boolean) => {
+    setTrustedFastLaunch(enabled);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('don_trusted_fast_launch', String(enabled));
+    }
+    if (isApiConnected) {
+      try {
+        await fetch(`${apiBaseUrl}/api/devices/trusted-policy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled, trustedFastLaunch: enabled }),
+        });
+      } catch {}
+    }
+  };
+
+  const handleToggleAppTrusted = async (appId: string, trusted: boolean) => {
+    setTrustedApps((prev) => prev.map((a) => (a.id === appId ? { ...a, trusted } : a)));
+    if (isApiConnected) {
+      try {
+        await fetch(`${apiBaseUrl}/api/devices/trusted-policy`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ appId, trusted }),
+        });
+      } catch {}
+    }
+  };
+
+  const handleLaunchTrustedApp = (app: TrustedAppEntry) => {
+    setActiveTab('chat');
+    handleSendMessage(`Launch ${app.appName}`);
+  };
+
+  const hudCoreState: HudCoreState = killSwitch.isActivated || assistantStatus === 'error'
+    ? 'error'
+    : pendingApprovals.length > 0 || assistantStatus === 'awaiting_approval'
+    ? 'awaiting_approval'
+    : isSpeaking
+    ? 'speaking'
+    : isVoiceListening
+    ? 'listening'
+    : isSending || assistantStatus === 'thinking'
+    ? 'thinking'
+    : 'idle';
 
   // Run Meeting Mode
   const handleRunMeetingAnalysis = () => {
@@ -1495,14 +1986,13 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
 
                 <button
                   onClick={() => {
-                    setActiveTab('chat');
-                    handleSendMessage('Launch Calculator');
+                    setActiveTab('devices');
                   }}
                   className="p-4 rounded-lg border border-slate-800 bg-slate-900/40 hover:bg-slate-800/60 text-left space-y-2 transition-all hover:border-amber-500/40"
                 >
                   <Laptop className="w-5 h-5 text-amber-400" />
-                  <div className="font-semibold text-xs text-slate-200">Launch Desktop App</div>
-                  <div className="text-[11px] text-slate-400">Propose launch of allowlisted Windows Calculator or Notepad.</div>
+                  <div className="font-semibold text-xs text-slate-200">Trusted Apps &amp; Edge</div>
+                  <div className="text-[11px] text-slate-400">Launch installed Windows apps or open websites in Microsoft Edge.</div>
                 </button>
 
                 <button
@@ -1530,21 +2020,40 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
             </div>
           )}
 
-          {/* TAB 2: ASSISTANT CHAT */}
+          {/* TAB 2: ASSISTANT CHAT (J.A.R.V.I.S. HUD) */}
           {activeTab === 'chat' && (
-            <div className="max-w-4xl mx-auto flex flex-col h-[calc(100vh-13rem)] space-y-3">
+            <div className="max-w-5xl mx-auto flex flex-col h-[calc(100vh-11rem)] space-y-3">
+              {/* Central J.A.R.V.I.S. Neural Core & Audio Visualizer HUD */}
+              <JarvisCoreHud
+                hudState={hudCoreState}
+                isApiConnected={isApiConnected}
+                edgeBridgeConnected={edgeBridgeConnected}
+                isVoiceLoopEnabled={isVoiceLoopEnabled}
+                isVoiceLoopPaused={isVoiceLoopPaused}
+                isVoiceListening={isVoiceListening}
+                isSpeaking={isSpeaking}
+                ttsAutoSpeak={ttsAutoSpeak}
+                killSwitchActive={killSwitch.isActivated}
+                analyserNode={analyserNode}
+                micPermissionDenied={micPermissionDenied}
+                interimTranscript={voiceTranscriptInterim}
+                onToggleVoiceLoop={handleToggleVoiceLoop}
+                onTogglePauseVoiceLoop={handleTogglePauseVoiceLoop}
+                onToggleTts={() => setTtsAutoSpeak((v) => !v)}
+                onStopSpeaking={stopSpeaking}
+                onOpenEdgeUrl={handleOpenEdgeUrl}
+                onWhatsAppSearchDoc={handleWhatsAppSearchDoc}
+                onWhatsAppCall={handleWhatsAppCall}
+              />
+
               {/* Voice Listening Interactive Bar */}
               {isVoiceListening && (
-                <div className="p-3 rounded-lg bg-rose-950/70 border border-rose-500/70 flex items-center justify-between shadow-xl animate-pulse">
+                <div className="p-2.5 rounded-lg bg-emerald-950/50 border border-emerald-500/50 flex items-center justify-between shadow-lg">
                   <div className="flex items-center gap-3">
-                    <span className="w-3.5 h-3.5 rounded-full bg-rose-500 animate-ping" />
+                    <span className="w-3 h-3 rounded-full bg-emerald-400 animate-ping" />
                     <div>
-                      <div className="text-xs font-bold text-rose-200 flex items-center gap-2">
-                        <span>Listening to your microphone...</span>
-                        <span className="text-[10px] text-rose-300 font-normal">Speak clearly. Auto-sends on pause.</span>
-                      </div>
-                      <div className="text-xs text-rose-100 font-mono mt-0.5">
-                        {voiceTranscriptInterim ? `"${voiceTranscriptInterim}"` : 'Listening for audio stream...'}
+                      <div className="text-xs font-mono text-emerald-200">
+                        {voiceTranscriptInterim ? `"${voiceTranscriptInterim}"` : 'Listening for voice command (auto-submits on 1.2s silence)...'}
                       </div>
                     </div>
                   </div>
@@ -1552,20 +2061,18 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
                     {voiceTranscriptInterim && (
                       <button
                         onClick={() => {
-                          if (recognitionRef.current) {
-                            try { recognitionRef.current.stop(); } catch {}
-                          }
-                          setIsVoiceListening(false);
+                          stopVoiceRecognition();
+                          setInputPrompt('');
                           handleSendMessage(voiceTranscriptInterim, true);
                         }}
-                        className="px-2.5 py-1 rounded bg-rose-500 hover:bg-rose-400 text-white font-semibold text-xs"
+                        className="px-2.5 py-1 rounded bg-emerald-500 hover:bg-emerald-400 text-black font-semibold text-xs"
                       >
                         Send Now
                       </button>
                     )}
                     <button
                       onClick={handleToggleVoice}
-                      className="px-2 py-1 rounded border border-rose-400/40 text-xs text-rose-300 hover:text-white"
+                      className="px-2 py-1 rounded border border-emerald-400/40 text-xs text-emerald-300 hover:text-white"
                     >
                       Cancel
                     </button>
@@ -1669,10 +2176,10 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleSendMessage('Launch Calculator')}
+                  onClick={() => handleSendMessage('Open YouTube in Microsoft Edge')}
                   className="px-2.5 py-1 rounded-full bg-slate-800/80 hover:bg-slate-700 text-slate-300 border border-slate-700/60 whitespace-nowrap flex items-center gap-1"
                 >
-                  <Laptop className="w-3 h-3 text-amber-400" /> Open Calculator
+                  <Globe className="w-3 h-3 text-amber-400" /> Open YouTube (Edge)
                 </button>
                 <button
                   type="button"
@@ -1731,7 +2238,7 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
                   placeholder={
                     isVoiceListening
                       ? 'Listening to speech... Speak your command'
-                      : 'Ask DON, search Google, launch calculator, solve math, propose call...'
+                      : 'Ask DON anything, open any website in Edge, launch an app, or search WhatsApp...'
                   }
                   disabled={isSending}
                   className="flex-1 bg-transparent text-xs text-slate-100 placeholder-slate-500 focus:outline-none"
@@ -2182,45 +2689,16 @@ export async function executeOperation<T>(endpoint: string, options: RequestInit
                 </div>
               </div>
 
-              {/* Windows Desktop Allowlist */}
-              <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4 space-y-4">
-                <div className="flex justify-between items-center">
-                  <h3 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                    <Laptop className="w-4 h-4 text-amber-400" />
-                    Windows Desktop Allowlist (Zero Remote Code Execution)
-                  </h3>
-                  <CapabilityBadge label={isApiConnected ? "Working" : "Requires local agent"} />
-                </div>
-                <p className="text-xs text-slate-400">
-                  DON never runs arbitrary scripts, shell commands, or unverified binaries. Only executables in this allowlist can be launched after approval.
-                </p>
-
-                <div className="space-y-2 text-xs">
-                  {allowlistedApps.map((app) => (
-                    <div
-                      key={app.id}
-                      className="rounded border border-slate-800 bg-black/40 p-3 flex justify-between items-center"
-                    >
-                      <div>
-                        <span className="font-semibold text-slate-200">{app.appName}</span>
-                        <div className="text-[11px] text-slate-400 font-mono">{app.executablePath}</div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-[10px] text-emerald-400 font-semibold uppercase">Allowed</span>
-                        <button
-                          onClick={() => {
-                            setActiveTab('chat');
-                            handleSendMessage(`Launch ${app.appName}`);
-                          }}
-                          className="px-3 py-1 rounded bg-amber-500 hover:bg-amber-400 text-black font-semibold text-xs"
-                        >
-                          Propose Launch
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              {/* Windows Desktop Trusted Apps Registry & Fast-Launch */}
+              <TrustedAppsRegistry
+                apps={trustedApps}
+                trustedFastLaunch={trustedFastLaunch}
+                isApiConnected={isApiConnected}
+                onToggleFastLaunch={handleToggleFastLaunch}
+                onToggleAppTrusted={handleToggleAppTrusted}
+                onLaunchApp={handleLaunchTrustedApp}
+                onRefreshApps={() => checkApiHealth(apiBaseUrl)}
+              />
             </div>
           )}
 

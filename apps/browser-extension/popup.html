@@ -30,11 +30,21 @@
       border-radius: 4px;
       margin-left: auto;
     }
+    .badge.disconnected {
+      background: rgba(239, 68, 68, 0.15);
+      color: #f87171;
+      border-color: rgba(239, 68, 68, 0.3);
+    }
     .info {
       color: #94a3b8;
       font-size: 11px;
       line-height: 1.4;
       margin-bottom: 12px;
+    }
+    .actions {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
     }
     .btn {
       width: 100%;
@@ -46,17 +56,25 @@
       border: none;
       cursor: pointer;
     }
+    .btn.secondary {
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+    }
   </style>
 </head>
 <body>
   <div class="header">
-    <strong>DON Navigator</strong>
-    <span class="badge" id="relay-status">Relay Paired</span>
+    <strong>DON Edge Bridge</strong>
+    <span class="badge" id="relay-status">Checking...</span>
   </div>
   <div class="info">
-    Minimal-permission browser agent. Safe actions require per-domain user consent.
+    Microsoft Edge companion for tab orchestration, media control, and sanctioned WhatsApp Web bridge.
   </div>
-  <button class="btn" id="open-dashboard">Open Dashboard</button>
+  <div class="actions">
+    <button class="btn" id="open-dashboard">Open HUD Dashboard</button>
+    <button class="btn secondary" id="reconnect-relay">Reconnect Relay</button>
+  </div>
   <script type="module" src="dist/popup.js"></script>
 </body>
 </html>
