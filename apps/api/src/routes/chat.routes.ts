@@ -201,6 +201,9 @@ export async function chatRoutes(fastify: FastifyInstance) {
               detached: true,
               stdio: 'ignore',
             });
+            if (child && typeof child.on === 'function') {
+              child.on('error', () => { /* ignore spawn errors */ });
+            }
             child.unref();
           } catch (e: any) {
             console.warn('Local app launch notice:', e.message);
